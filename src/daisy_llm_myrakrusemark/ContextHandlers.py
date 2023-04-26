@@ -6,10 +6,10 @@ import time
 import threading
 from sqlite3 import Error
 import sqlite3
-import system_modules.Chat as cht
+import src.daisy_llm_myrakrusemark.Chat as cht
 import re
 from ruamel.yaml import YAML
-from system_modules.Text import print_text
+from src.daisy_llm_myrakrusemark.Text import print_text
 yaml = YAML()
 
 class ConnectionPool:
@@ -52,7 +52,7 @@ class ContextHandlers:
 	description = "A class for handling and managing messages in the chatGPT context object"
 
 	def __init__(self, db_path):
-		self.chat = cht.Chat()
+		self.chat = cht()
 
 		#Get and set conversation_id from configs.yaml
 		self.conversation_id = None

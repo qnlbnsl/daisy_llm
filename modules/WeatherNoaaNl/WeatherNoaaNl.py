@@ -3,7 +3,7 @@ import logging
 import threading
 import yaml
 import geocoder
-from system_modules.Text import print_text
+from src.daisy_llm_myrakrusemark.Text import print_text
 
 
 class WeatherNoaaNl:

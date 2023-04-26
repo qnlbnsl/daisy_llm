@@ -1,6 +1,6 @@
 import platform
 import logging
-from system_modules.Text import print_text
+from src.daisy_llm_myrakrusemark.Text import print_text
 import modules.Porcupine.Porcupine as porcupine
 
 cancel_loop = False

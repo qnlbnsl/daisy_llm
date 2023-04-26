@@ -5,21 +5,24 @@ import logging
 import yaml
 import time
 import threading
+import concurrent.futures
+
 
 from ruamel.yaml import YAML
 yaml = YAML()
 yaml.allow_duplicate_keys = True
 
 
-from system_modules.Text import print_text
+from src.daisy_llm_myrakrusemark.Text import print_text
 
 
 
 class ModuleLoader:
 	initialized = False
 	
-	def __init__(self, ch, directory="modules"):
+	def __init__(self, ch, directory="modules", configs_yaml="configs.yaml"):
 		self.ch = ch
+		self.configs_yaml = configs_yaml
 		if not ModuleLoader.initialized:
 			ModuleLoader.initialized = True
 
@@ -36,7 +39,7 @@ class ModuleLoader:
 
 
 			# Load enabled modules from config file
-			with open('configs.yaml', 'r') as f:
+			with open(self.configs_yaml, 'r') as f:
 				self.configs = yaml.load(f)
 			
 
@@ -53,7 +56,7 @@ class ModuleLoader:
 	def get_available_modules(self):
 		# Load enabled modules from config file
 		try:
-			with open('configs.yaml', 'r') as f:
+			with open(self.configs_yaml, 'r') as f:
 				self.configs = yaml.load(f)
 		except Exception as e:
 			logging.warning(f"Failed to load configs.yaml: {str(e)}")
@@ -208,12 +211,12 @@ class ModuleLoader:
 
 	def enable_module(self, module_name):
 		logging.info("Enabling module: " + module_name)
-		with open('configs.yaml', 'r') as f:
+		with open(self.configs_yaml, 'r') as f:
 			config = yaml.load(f)
 
 		if module_name not in config['enabled_modules']:
 			config['enabled_modules'].append(module_name)
-			with open('configs.yaml', 'w') as f:
+			with open(self.configs_yaml, 'w') as f:
 				yaml.dump(config, f)
 
 			self.loaded = False
@@ -224,12 +227,12 @@ class ModuleLoader:
 
 	def disable_module(self, module_name):
 		logging.info("Disabling module: " + module_name)
-		with open('configs.yaml', 'r') as f:
+		with open(self.configs_yaml, 'r') as f:
 			config = yaml.load(f)
 
 		if module_name in config['enabled_modules']:
 			config['enabled_modules'].remove(module_name)
-			with open('configs.yaml', 'w') as f:
+			with open(self.configs_yaml, 'w') as f:
 				yaml.dump(config, f)
 
 			self.loaded = False
@@ -238,5 +241,43 @@ class ModuleLoader:
 		time.sleep(0.5)
 		return self.get_available_modules()
 
+	def process_main_start_instances(self):
+
+		# Define a function that starts a new thread for a given hook instance
+		def start_instance(instance):
+			logging.info("Main_start: Running %s module: %s "+instance.__class__.__name__+" "+type(instance).__name__)
+			future = executor.submit(instance.main, self, self.ch)
+			return future
+
+		# Define a dictionary to keep track of running threads
+		running_threads = {}
+		stop_event = threading.Event()
+		# Create the ThreadPoolExecutor outside the while loop
+		with concurrent.futures.ThreadPoolExecutor() as executor:
+			# Main loop that watches for changes to hook_instances["Main_start"]
+			while True:
+				logging.debug("Main_start: Checking for changes...")
+				if list(running_threads.keys()):
+					future_object = list(running_threads.values())[0]  # get the Future object from the dictionary
+					if future_object.exception() is not None:  # check if the Future object has a raised exception
+						runtime_error = future_object.exception()  # get the raised exception from the Future object
+						logging.error("An error occurred: %s "+str(future_object.exception()))
 
 
+				hook_instances = self.get_hook_instances()
+				# Check if any new hook instances have been added or removed
+				if "Main_start" in hook_instances:
+					for instance in hook_instances["Main_start"]:
+						for module in self.get_available_modules():
+							if module['class_name'] == instance.__module__ and instance not in running_threads:
+								if module['enabled']:
+									future = executor.submit(start_instance, instance)
+									running_threads[instance] = future
+								else:
+									future = running_threads[instance]
+									future.cancel()
+									del running_threads[instance]
+
+
+				# Wait for some time before checking for updates again
+				time.sleep(1)

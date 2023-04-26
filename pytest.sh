@@ -1,1 +1,0 @@
-pytest -v -s -p no:warnings pytests.py

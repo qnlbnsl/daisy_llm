@@ -8,9 +8,9 @@ import json
 import requests
 import re
 
-import system_modules.ChatSpeechProcessor as csp
-import system_modules.SoundManager as sm
-from system_modules.Text import print_text, delete_last_lines
+import src.daisy_llm_myrakrusemark.ChatSpeechProcessor as csp
+import src.daisy_llm_myrakrusemark.SoundManager as sm
+from src.daisy_llm_myrakrusemark.Text import print_text, delete_last_lines
 import pprint
 
 

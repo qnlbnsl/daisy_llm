@@ -11,7 +11,7 @@ import numpy as np
 class SoundManager:
     description = "A class for managing sound files in a directory, playing sounds, and stopping playback."
     
-    def __init__(self, directory='sounds/'):
+    def __init__(self, directory='src/daisy_llm_myrakrusemark/sounds/'):
         self.directory = directory
         self.sounds = {}
         self.current_sound = None

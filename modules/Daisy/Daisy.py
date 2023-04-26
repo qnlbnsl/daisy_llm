@@ -1,13 +1,13 @@
 import logging
 import threading
-import system_modules.ChatSpeechProcessor as csp
-import system_modules.ConnectionStatus as cs
-import system_modules.SoundManager as sm
-import system_modules.Chat as chat
-import system_modules.LoadTts as loadtts
+import src.daisy_llm_myrakrusemark.ChatSpeechProcessor as csp
+import src.daisy_llm_myrakrusemark.ConnectionStatus as cs
+import src.daisy_llm_myrakrusemark.SoundManager as sm
+import src.daisy_llm_myrakrusemark.Chat as chat
+import src.daisy_llm_myrakrusemark.LoadTts as loadtts
 from modules.Daisy.DaisyMethods import listen_for_daisy_wake, listen_for_daisy_cancel
 import modules.RgbLed as led
-from system_modules.Text import print_text
+from src.daisy_llm_myrakrusemark.Text import print_text
 
 class Daisy:
 	description = "Provides a user flow for Chat"
@@ -17,7 +17,7 @@ class Daisy:
 		self.ml = ml
 		self.ch = ml.ch
 
-		self.chat = chat.Chat(self.ml, self.ch)
+		self.chat = chat(self.ml, self.ch)
 		self.csp = csp.ChatSpeechProcessor()
 		self.cs = cs.ConnectionStatus()
 		self.sounds = sm.SoundManager()
@@ -70,7 +70,7 @@ class Daisy:
 
 				#HOOK: Daisy_wake
 				try:
-					import ModuleLoader as ml
+					import src.daisy_llm_myrakrusemark.ModuleLoader as ml
 					hook_instances = self.ml.hook_instances
 					if "Daisy_wake" in hook_instances:
 						Daisy_wake_instances = hook_instances["Daisy_wake"]

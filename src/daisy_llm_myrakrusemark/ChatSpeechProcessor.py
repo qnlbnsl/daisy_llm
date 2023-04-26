@@ -20,9 +20,9 @@ import queue
 import requests
 from concurrent.futures import ThreadPoolExecutor
 
-import system_modules.SoundManager as sm
+import src.daisy_llm_myrakrusemark.SoundManager as sm
 import modules.RgbLed as led
-from system_modules.Text import print_text, delete_last_lines
+from src.daisy_llm_myrakrusemark.Text import print_text, delete_last_lines
 
 
 
@@ -43,7 +43,7 @@ class ChatSpeechProcessor:
 		self.result_str = ""
 		self.new_result_str = ""
 		self.result_received = False
-		self.sounds = sm.SoundManager('sounds/')
+		self.sounds = sm.SoundManager('src/daisy_llm_myrakrusemark/sounds/')
 		#self.r = sr.Recognizer()
 		self.engine = pyttsx3.init()
 		#self.engine.getProperty('voices')

@@ -4,7 +4,7 @@ from io import BytesIO
 import io
 import threading
 from pydub import AudioSegment
-import system_modules.ChatSpeechProcessor as csp
+import src.daisy_llm_myrakrusemark.ChatSpeechProcessor as csp
 
 class TTSGoogle:
 	"""

@@ -24,8 +24,8 @@ class ModuleLoader:
 		  modules=[]):
 		self.ch = ch
 		self.configs_yaml = configs_yaml
-		self.enabled_modules = modules
-
+		self.passed_modules = modules
+	
 		if not ModuleLoader.initialized:
 			ModuleLoader.initialized = True
 
@@ -59,9 +59,8 @@ class ModuleLoader:
 		if not self.loaded:
 			self.loaded = True
 			logging.info("Updating modules...")
-			
-			# Load passed modules
-			enabled_modules = self.enabled_modules
+
+			self.enabled_modules = list(self.passed_modules) #Create a copy so that it does not get updated when appended to.
 
 			try:
 				with open(self.configs_yaml, 'r') as f:
@@ -72,27 +71,25 @@ class ModuleLoader:
 			if "enabled_modules" in self.configs:
 				if self.configs["enabled_modules"]:
 
-
 					#Add modules in configs.yaml to enabled_modules
 					for enabled_module in self.configs["enabled_modules"]:
-						if enabled_module not in enabled_modules:
-							enabled_modules.append(enabled_module)
+						if enabled_module not in self.enabled_modules: #Eliminates duplicates
+							self.enabled_modules.append(enabled_module)
 
-			self.enabled_modules = enabled_modules
-
-
+			#Set all modules as disabled and enable them as they are found
+			for available_module in self.available_modules:
+				available_module["enabled"] = False
 
 			for module_name in self.enabled_modules:
-				# If module is in configs.yaml, it is enabled.
-				enabled = True
-				# Check if the module is already in available modules
 				module_in_available = False
-				for module in self.available_modules:
-					if module['class_name'] == module_name:
+
+				# If module is in configs.yaml and available_modules, it is enabled.
+				for available_module in self.available_modules:
+					if module_name == available_module["class_name"]:
+						available_module["enabled"] = True
 						module_in_available = True
-						if module_in_available:
-							module["enabled"] = enabled
-						break
+
+
 				# Add the module if it's NOT in available modules
 				if not module_in_available:
 					# Attempt to import the module, and handle exceptions.
@@ -110,7 +107,7 @@ class ModuleLoader:
 							if isinstance(obj, type):
 								module_hook = getattr(obj, "module_hook", "")
 
-								if module_hook:
+								if module_hook and module_name:
 									class_description = getattr(obj, "description", "No description.")
 									tool_form_name = getattr(obj, "tool_form_name", None)
 									tool_form_description = getattr(obj, "tool_form_description", None)
@@ -121,7 +118,7 @@ class ModuleLoader:
 									module_dict["class_name"] = module_name
 									module_dict["description"] = class_description
 									module_dict["module_hook"] = module_hook
-									module_dict["enabled"] = enabled
+									module_dict["enabled"] = True
 									if tool_form_name:
 										module_dict["tool_form_name"] = tool_form_name
 									if tool_form_description:
@@ -131,23 +128,21 @@ class ModuleLoader:
 
 									self.available_modules.append(module_dict)
 
-									# If the class has a module_hook attribute, create an instance of it and add it to
-									# the list of hook instances.
-									if enabled and module_hook:
 
-										#Module loaded
-										pass
+			# Notify status of modules
+			for available_module in self.available_modules:
+				if available_module['enabled']:
+					print_text("MODULE LOADED: ", "green", "", "italic")
+					print_text(available_module['class_name']+" to "+available_module['module_hook'], None, "\n")
 
-									elif not enabled:
-										logging.debug("MODULE DISABLED: " + module_name)
-									else:
-										logging.debug("Class " + module_name + " has no module_hook value. Skipped.")
+				else:
+					print_text("MODULE REMOVED: ", "red", "", "italic")
+					print_text(available_module['class_name']+" from "+available_module['module_hook'], None, "\n")
 
 			#If config.yaml item is no longer available, set enabled to False
 			for available_module in self.available_modules:
 				if available_module["class_name"] not in self.enabled_modules:
 					available_module["enabled"] = False
-
 			self.build_hook_instances()
 		return self.available_modules
 
@@ -157,9 +152,8 @@ class ModuleLoader:
 		# Create a new dictionary to keep track of updated hook instances
 		updated_hook_instances = {}
 
-		# Iterate over the modules in the order they appear in configs.yaml
+		# Iterate over the modules in the order they appear
 		for module_name in self.enabled_modules:
-		#for module_name in self.configs['enabled_modules']:
 			for module in self.available_modules:
 				
 				if module['class_name'] == module_name:
@@ -195,18 +189,17 @@ class ModuleLoader:
 
 					# Add the updated instance to the updated_hook_instances
 					updated_hook_instances[module['module_hook']].append(instance)
-					print_text("MODULE LOADED: ", "green", "", "italic")
-					print_text(module_name+" to "+module['module_hook'], None, "\n")
+					
 
 					break
 
-		# Notify and close removed instances
+
+
+		# Close removed instances from hook_instances
 		for hook in self.hook_instances:
 			for instance in self.hook_instances[hook]:
 				if hook not in updated_hook_instances or instance not in updated_hook_instances[hook]:
 
-					print_text("MODULE REMOVED: ", "green", "", "italic")
-					print_text(instance.__class__.__name__ + " from " + hook + ".", None, "\n")
 
 					if hasattr(instance, 'close') and callable(getattr(instance, 'close')):
 						instance.close()
@@ -221,7 +214,7 @@ class ModuleLoader:
 			if current_modified_time > last_modified_time:
 				self.loaded = False
 				self.get_available_modules()
-				
+
 				last_modified_time = current_modified_time
 
 			time.sleep(1)

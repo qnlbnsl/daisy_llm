@@ -1,0 +1,48 @@
+#Modules are loaded in the order they are listed here.
+enabled_modules:
+- modules.DANPrompt
+- modules.DaisyPrompt
+- modules.Daisy
+- modules.TtsElevenLabs
+- modules.GoogleScraper
+- modules.Calculator
+- modules.WeatherNoaaNl.WeatherNoaaNl
+- modules.DiskFree
+- modules.Memories
+- modules.SetLocation
+
+conversation_id: CONVERSATION_ID
+#Set the id of an existing conversation to load it.
+#Leave empty to load the latest conversation.
+#Set the id of a non-existing conversation to create a new one with that ID.
+
+#API Keys for the modules that need them. 
+keys:
+  assembly_ai: API_KEY
+  openai: API_KEY
+  serp_api: API_KEY
+  elevenlabs: API_KEY
+  porcupine: API_KEY
+
+#Set natural language location.
+location: CITY_NAME
+#Set latlon to bypass geocoding (sometimes the service is not available).
+latlon: LAT_LON
+
+
+hardware:
+  input_device_index: 1
+  led: False
+
+print_text: True
+log_level: WARNING
+
+TTS:
+  speed: SPEED
+
+TTSElevenLabs:
+  voice: VOICE_NAME
+
+TTSGoogleCloud:
+  voice: en-US-Studio-O
+  project: PROJECT_NAME

@@ -1,65 +1,17 @@
-## 🌼 Daisy.py 🌼
-Daisy is a Python platform designed to work with language model APIs such as OpenAI's GPT-3 and GPT-4. It includes a suite of classes and methods that can be used to develop modules that can be dynamically added to extend and augment the reasoning capabilities of large language models. Notably, Daisy incorporates "tool-forms" that enable Daisy to utilize additional resources like web searching, context processing, memory/conversation review, calculations, and more.
+## 🌼 Daisy LLM Tools 🌼
+Daisy is a Python platform designed to work with language model APIs such as OpenAI's GPT-3 and GPT-4. It includes a suite of classes and methods that can be used to converse with, extend capabilities, and augment the reasoning capacities of large language models.
 
 ### 🏁 Getting Started
-Install necessary packages
+Install package
 ```
-pip install  -r  requirements.txt
-```
-
-
-Update ```config.py``` with necessary information and enable desired modules to be loaded.
-
-Also, take a look at the individual module files to understand how they are loaded. You can make your own!
-```
-#Modules are loaded in the order they are listed here.
-enabled_modules:
-- modules.DanPrompt 
-#Insert a DAN-like prompt to enable Daisy to "Do Anything Now"
-
-- modules.DaisyPrompt 
-#Give Daisy a few extra rules for behaving as a voice assistant
-
-- modules.Daisy 
-#Daisy voice assistant front-end
-
-- modules.WebConfigDjango.WebConfigDjango
-#Daisy web config tool based on Django
-
-- modules.Dashboard_WebConfigDjango.Dashboard_WebConfigDjango
-#Dynamically loaded route (new routes can be loaded through hooks as well)
-
-#TTS Modules (Only the first one is loaded)
-- modules.TtsElevenLabs
-#TTS from ElevenLabs
-- modules.GoogleCloudTTS
-#TTS from ElevenLabs
-- modules.GoogleTTS
-#TTS from Google Translate TTS endpoint
-
-- modules.GoogleScraper
-#SerpAPI Google search result scraping tool
-
-- modules.Calculator
-#Python eval() to solve solvable expression strings
-
-- modules.WeatherNoaaNl.WeatherNoaaNl
-#Natural language to lat/lon weather forecast from NOAA.gov
-
-- Memories
-#Retrieve name/summary of all conversations in the sqlite DB
-
-...See configs.yaml  or more configurations...
+pip install daisy_llm
 ```
 
 
-Run Daisy (platform)
-```
-py main.py
-```
+Create ```config.py``` in your project with necessary information and enable desired modules to be loaded. See [Daisy-openai-chat](https://github.com/myrakrusemark/Daisy-openAI-chat) for sample project and a collection of modules to get started
 
 ### 🧰 Capabilities
-Daisy accepts different types of user-developed "modules". A voice assistant module comes with the project as a "proof-of-concept". Possible configurations and apps built using Daisy could include:
+Daisy accepts different types of user-developed "modules". A voice assistant module comes with [Daisy-openai-chat](https://github.com/myrakrusemark/Daisy-openAI-chat) as a "proof-of-concept". Possible configurations and apps built using Daisy could include:
   - Web apps
   - Conversational processing APIs
   - Computer vision interpretation
@@ -74,7 +26,7 @@ Keep in mind: Daisy is still in development. It has, and will, evolve significan
 Daisy uses the following APIs for conversation processing:
   - Language model: OpenAI chatGPT
   - Speech-to-text (STT): AssemblyAI
-  - Text-To-Speech(TTS): ElevenLabs (Quality), Google Cloud TTS (Cheap), Google Translate TTS (Free!)
+  - Text-To-Speech(TTS): ElevenLabs (Quality), Google Cloud TTS (Cheap), Google Translate TTS (Free!) (Modules in [Daisy-openai-chat](https://github.com/myrakrusemark/Daisy-openAI-chat). Uses pyttsx3 by default)
   - Wake word (Local): Picovice Porcupine
   - Alternative local APIs are available and should be easily interchangeable if you choose to use them. In some cases, they can be switched out as modules. In every other case, a code hook can be added to make it interchangeable.
 
@@ -92,9 +44,3 @@ This software is designed to run on Windows and Linux.
 
 ### ✅ To-Do
 - LLMs (API or local) as modules
-- Save and email contexts
-- Manage load or export conversation contexts from WebConfig
-- Get to know users. For instance, keep track of a persnality profile so you can begin to ask questions like "What would my wife like for her birthday?"
-    - Using pyannote.audio to diarize speakers and identify them in each "user" message
-    - Ask the AI to compare each message from a specific user to their personality profile and add new bits if it hears something new.
-- Summarize and reset contexts when a conversation reaches max token value

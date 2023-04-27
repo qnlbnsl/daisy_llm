@@ -234,7 +234,7 @@ Tools:
 							# Attempt to load the input string as JSON
 							try:
 								data = json.loads(json_data)
-								logging.info('Data:' + data)
+								logging.info('Data:' + str(data))
 							except json.decoder.JSONDecodeError as e:
 								# Input string contains errors, attempt to fix them
 								logging.error('JSONDecodeError:', e)
@@ -247,7 +247,7 @@ Tools:
 									logging.warning('Fixed input:', fixed_str)
 									try:
 										data = json.loads(fixed_str)
-										logging.info('Data:', data)
+										logging.info('Data:'+ str(data))
 									except json.decoder.JSONDecodeError:
 										logging.error('Could not fix input')
 								else:

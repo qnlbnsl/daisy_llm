@@ -1,9 +1,9 @@
-from src.daisy_llm_myrakrusemark.ChatSpeechProcessor import ChatSpeechProcessor
+from src.daisy_llm.ChatSpeechProcessor import ChatSpeechProcessor
 from unittest.mock import MagicMock
-from src.daisy_llm_myrakrusemark.ContextHandlers import ContextHandlers
-from src.daisy_llm_myrakrusemark.SoundManager import SoundManager
-from src.daisy_llm_myrakrusemark.ModuleLoader import ModuleLoader
-from src.daisy_llm_myrakrusemark.Chat import Chat
+from src.daisy_llm.ContextHandlers import ContextHandlers
+from src.daisy_llm.SoundManager import SoundManager
+from src.daisy_llm.ModuleLoader import ModuleLoader
+from src.daisy_llm.Chat import Chat
 import os
 
 test_messages=[{"role": "system", "content": "Daisy"}]

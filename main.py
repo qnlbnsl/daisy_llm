@@ -1,18 +1,7 @@
-import logging
-from src.daisy_llm_myrakrusemark.Logging import Logging
-
-logger = Logging('daisy.log')
-logger.set_up_logging()
-
-import os
-import sys
 import threading
-import time
-import concurrent.futures
 
-import src.daisy_llm_myrakrusemark.ModuleLoader as module_loader
-import src.daisy_llm_myrakrusemark.ContextHandlers as context_handlers
-from src.daisy_llm_myrakrusemark.Logging import Logging
+import src.daisy_llm.ModuleLoader as module_loader
+import src.daisy_llm.ContextHandlers as context_handlers
 
 ch = context_handlers('daisy.db')
 

@@ -191,10 +191,8 @@ class ChatSpeechProcessor:
 
 
 	def play_tts_queue(self, arguments_dict):
-		play_tts_queue = arguments_dict['play_tts_queue']
 		tts_queue = arguments_dict['tts_queue']
 		sentence_queue_canceled = arguments_dict.get('sentence_queue_canceled', [False])
-		sentence_queue_complete = arguments_dict.get('sentence_queue_complete', [False])
 		tts_queue_complete = arguments_dict['tts_queue_complete']
 		stop_event = arguments_dict['stop_event']
 		sound_stop_event = arguments_dict['sound_stop_event']

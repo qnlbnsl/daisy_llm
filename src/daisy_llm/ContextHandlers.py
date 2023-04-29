@@ -68,56 +68,6 @@ class ContextHandlers:
 		self.start_prompts = []
 		self.connection_pool = ConnectionPool(db_path)
 
-		self.load_context()
-
-	def update_conversation_name_summary(self):
-		# Get the name of the current conversation from the LLM
-		time.sleep(1)
-		logging.info("Updating conversation name and summary...")
-		messages = self.get_context_without_timestamp()
-		prompt = """
-		Please respond with a name, and summary for this conversation.
-		1. The name should be a single word or short phrase, no more than 5 words."
-		2. The summary should be a short description of the conversation, no more than 2 SHORT sentences.
-		3. The output must follow the following JSON format: {"name": name, "summary": summary}
-		"""
-		messages.append(self.single_message_context('system', prompt, False))
-
-		print_text("Conversation info ("+str(self.conversation_id)+"): ", "yellow")
-		response = self.chat.request(
-			messages=messages, 
-			silent=False, 
-			response_label=False
-			)
-
-		# Extract the JSON response from the string
-		response_match = re.search(r"{.*}", response)
-		if response_match:
-			response_json = response_match.group(0)
-		else:
-			logging.error("Invalid response format while setting conversation name and summary")
-			return
-
-		# Convert the JSON response to an object
-		try:
-			response_obj = json.loads(response_json)
-		except Exception as e:
-			logging.error("Invalid JSON response while setting conversation name and summary: " + str(e))
-			return
-
-		# Update the name and summary of the current conversation in the database
-		with self.connection_pool.get_connection() as conn:
-			cursor = conn.cursor()
-			cursor.execute(
-				'''UPDATE conversations SET name = ?, summary = ? WHERE id = ?''',
-				(response_obj["name"], response_obj["summary"], self.conversation_id)
-			)
-			conn.commit()
-
-		logging.info("Name and summary updated: " + response_obj["name"])
-
-		return
-
 
 	def load_context(self):
 		self.messages = []
@@ -126,27 +76,12 @@ class ContextHandlers:
 
 			cursor = conn.cursor()
 
-			# Get the conversation ID
-			if not self.conversation_id:
-				cursor.execute('''
-				SELECT id FROM conversations ORDER BY id DESC LIMIT 1;
-				''')
-				row = cursor.fetchone()
-				if row:
-					self.conversation_id = str(row[0])
-					logging.info("No conversation id found in configs.yaml, loading latest conversation: " + str(self.conversation_id))
-
-			# If conversation still is not set, create a new conversation ID
+			# If conversation_id is not set, create a new conversation ID
 			if not self.conversation_id:
 				self.conversation_id = str(int(time.time()))
-				logging.info("No conversation found, creating new conversation: " + str(self.conversation_id))
 
-				# Set the new conversation ID in configs.yaml
-				with open("configs.yaml", "r") as f:
-					configs = yaml.load(f)
-				configs['conversation_id'] = self.conversation_id
-				with open("configs.yaml", "w") as f:
-					yaml.dump(configs, f)
+				print_text("Creating new conversation: ", "yellow")
+				print_text(str(self.conversation_id), None, "\n")
 
 			logging.info("Conversation id: " + str(self.conversation_id))
 
@@ -160,8 +95,6 @@ class ContextHandlers:
 					message = json.loads(row[1])
 					self.messages.append(message)
 				print_text("Loaded "+ str(len(rows)) + " messages from conversation id: " + str(self.conversation_id), "yellow", "\n")
-
-
 
 	def create_conversations_table_if_not_exists(self):
 		with self.connection_pool.get_connection() as conn:
@@ -198,7 +131,7 @@ class ContextHandlers:
 				conn.execute('''
 					INSERT INTO conversations (id, name, summary)
 					VALUES (?, ?, ?);
-				''', (self.conversation_id, "generic name", "generic summary"))
+				''', (self.conversation_id, "No name", "No summary"))
 
 			# Save messages
 			conn.execute('''
@@ -217,7 +150,6 @@ class ContextHandlers:
 			''', (self.conversation_id,)).fetchone()[0]
 			logging.info(f"Inserted {row_count} rows for conversation {self.conversation_id}.")
 
-
 	def get_context(self):
 		context = []
 		#Append start prompts to messages
@@ -228,7 +160,6 @@ class ContextHandlers:
 			context.append(message)
 		return context
 
-
 	def get_context_without_timestamp(self):
 		messages_without_timestamp = []
 
@@ -237,19 +168,19 @@ class ContextHandlers:
 			del message_without_timestamp['timestamp']
 			messages_without_timestamp.append(message_without_timestamp)
 		return messages_without_timestamp
-	
-	def get_conversation_name_summary(self):
+
+	def get_conversation_name_summary(self, limit=None):
 		with self.connection_pool.get_connection() as conn:
 			cursor = conn.cursor()
-			cursor.execute(
-				'''SELECT name, summary FROM conversations'''
-			)
+			query = '''SELECT id, name, summary FROM conversations ORDER BY id DESC'''
+			if limit:
+				query += f' LIMIT {limit}'
+			cursor.execute(query)
 			rows = cursor.fetchall()
 			if rows:
-				return [(name, summary) for name, summary in rows]
+				return [(id, name, summary) for id, name, summary in rows]
 			else:
 				return None
-
 
 	def single_message_context(self, role, message, incl_timestamp=True):
 		if incl_timestamp:
@@ -258,8 +189,8 @@ class ContextHandlers:
 			return {'role': role, 'timestamp': timestamp, 'content': str(message)}
 		else:
 			return {'role': role, 'content': str(message)}
-		
-	def add_start_propmpt(self, role="system", message=""):
+
+	def add_start_prompt(self, role="system", message=""):
 		start_prompt = self.single_message_context(role, message)
 		self.start_prompts.append(start_prompt)
 
@@ -329,3 +260,210 @@ class ContextHandlers:
 		except ValueError:
 			pass
 		return False
+
+	def update_conversation_name_summary(self, conversation_id=None, update_all=False):
+		conversation_ids = []
+
+		if conversation_id:
+			conversation_ids.append(conversation_id)
+		elif update_all:
+			conversation_ids = self.get_conversation_ids()
+		else:
+			conversation_ids.append(self.conversation_id)
+			# Get conversations with missing name or summary
+			conversations = self.get_conversation_name_summary(limit=None)
+			for conv_id, name, summary in conversations:
+				if name == "No name" or summary == "No summary":
+					if conv_id not in conversation_ids:
+						conversation_ids.append(conv_id)
+
+		for conv_id in conversation_ids:
+			messages = self.get_conversation_context_by_id(conv_id, include_timestamp=False)
+			#If there are no messages in the context, delete it
+			
+			if not messages:
+				self.delete_conversation_by_id(conv_id)
+
+			# Get the name of the current conversation from the LLM
+			time.sleep(1)
+			logging.info("Updating conversation name and summary for: " + conv_id)
+
+			while True:
+				prompt = """
+				Please respond with a name, and summary for this conversation.
+				1. The name should be a single word or short phrase, no more than 5 words."
+				2. The summary should be a fairly verbose summary of the conversation, as short as possible while still containing all of the important topics, names, places, and sentiment of conversation.
+				3. The output must follow the following JSON format: {"name": name, "summary": summary}
+				4. If the conversation is empty, please respond with "Empty"
+				"""
+				if messages:
+					messages.append(self.single_message_context('system', prompt, False))
+
+					print_text("Conversation info (" + str(conv_id) + "): ", "yellow")
+					response = self.chat.request(
+						messages=messages,
+						silent=False,
+						response_label=False
+					)
+				else:
+					response = '{"name": "Empty Conversation", "summary": "None"}'
+
+
+				# Extract the JSON response from the string
+				response_match = re.search(r"{.*}", response)
+				if response_match:
+					response_json = response_match.group(0)
+					break
+				else:
+					logging.error("Invalid response format while setting conversation name and summary. Trying again...")
+
+			# Convert the JSON response to an object
+			try:
+				response_obj = json.loads(response_json)
+			except Exception as e:
+				logging.error("Invalid JSON response while setting conversation name and summary: " + str(e))
+				return
+
+			# Update the name and summary of the current conversation in the database
+			with self.connection_pool.get_connection() as conn:
+				cursor = conn.cursor()
+				cursor.execute(
+					'''UPDATE conversations SET name = ?, summary = ? WHERE id = ?''',
+					(response_obj["name"], response_obj["summary"], conv_id)
+				)
+				conn.commit()
+
+			logging.info("Name and summary updated for conversation " + conv_id + ": " + response_obj["name"])
+
+	def get_conversation_ids(self):
+		with self.connection_pool.get_connection() as conn:
+			cursor = conn.cursor()
+			cursor.execute('''SELECT id FROM conversations;''')
+			rows = cursor.fetchall()
+			return [row[0] for row in rows]
+
+	def new_conversation(self):
+		# Generate a new conversation ID
+		conversation_id = str(int(time.time()))
+		logging.info("Creating a new conversation: " + conversation_id)
+
+		# Set the new conversation ID in configs.yaml
+		with open("configs.yaml", "r") as f:
+			configs = yaml.load(f)
+		configs['conversation_id'] = conversation_id
+		with open("configs.yaml", "w") as f:
+			yaml.dump(configs, f)
+
+		# Update the conversation ID and load the context
+		self.conversation_id = conversation_id
+		self.load_context()
+
+	def get_conversation_name_by_id(self, conversation_id):
+		with self.connection_pool.get_connection() as conn:
+			cursor = conn.cursor()
+			cursor.execute(
+				'''SELECT name FROM conversations WHERE id = ?''',
+				(conversation_id,)
+			)
+			row = cursor.fetchone()
+			if row:
+				return row[0]
+			else:
+				return None
+			
+	def get_conversation_context_by_id(self, conversation_id, include_timestamp=True):
+		# Check if the conversation ID exists in the database
+		with self.connection_pool.get_connection() as conn:
+			cursor = conn.cursor()
+			cursor.execute('''
+				SELECT id FROM conversations WHERE id = ?;
+			''', (conversation_id,))
+			row = cursor.fetchone()
+
+		if row:
+			# Get the messages from the specified conversation ID
+			with self.connection_pool.get_connection() as conn:
+				cursor = conn.cursor()
+				cursor.execute('''
+					SELECT message FROM messages WHERE id = ?;
+				''', (conversation_id,))
+				rows = cursor.fetchall()
+
+			context = []
+			if rows:
+				for row in rows:
+					message = json.loads(row[0])
+					if not include_timestamp:
+						message.pop('timestamp', None)
+					context.append(message)
+
+			return context
+		else:
+			return None
+
+	def set_conversation_by_id(self, conversation_id):
+		if str(conversation_id).isdigit():
+			conversation_id = int(conversation_id)
+		else:
+			return False
+			
+		logging.info("Setting conversation ID: " + str(conversation_id))
+		
+		# Check if the conversation ID exists in the database
+		with self.connection_pool.get_connection() as conn:
+			cursor = conn.cursor()
+			cursor.execute('''
+				SELECT id FROM conversations WHERE id = ?;
+			''', (conversation_id,))
+			row = cursor.fetchone()
+		
+		if row:
+			# Set the conversation ID in configs.yaml
+			with open("configs.yaml", "r") as f:
+				configs = yaml.load(f)
+			configs['conversation_id'] = conversation_id
+			with open("configs.yaml", "w") as f:
+				yaml.dump(configs, f)
+			
+			# Update the conversation ID and load the context
+			self.conversation_id = conversation_id
+			self.load_context()
+			return True
+		else:
+			return False
+		
+	def delete_conversation_by_id(self, conversation_id):
+		logging.info("Deleting conversation ID: " + conversation_id)
+		
+		# Check if the conversation ID exists in the database
+		with self.connection_pool.get_connection() as conn:
+			cursor = conn.cursor()
+			cursor.execute('''
+				SELECT id FROM conversations WHERE id = ?;
+			''', (conversation_id,))
+			row = cursor.fetchone()
+		
+		if row:
+			# Delete the conversation from the database
+			with self.connection_pool.get_connection() as conn:
+				cursor = conn.cursor()
+				cursor.execute('''
+					DELETE FROM conversations WHERE id = ?;
+					DELETE FROM messages WHERE id = ?;
+				''', (conversation_id, conversation_id,))
+				conn.commit()
+			
+			# Clear the conversation ID in configs.yaml if it matches the deleted conversation
+			with open("configs.yaml", "r") as f:
+				configs = yaml.load(f)
+			if configs.get('conversation_id') == conversation_id:
+				configs['conversation_id'] = None
+				with open("configs.yaml", "w") as f:
+					yaml.dump(configs, f)
+			
+			# Reset the conversation ID and reload the context
+			self.conversation_id = None
+			self.load_context()
+			return True
+		else:
+			return False

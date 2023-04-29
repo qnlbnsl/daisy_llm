@@ -34,7 +34,7 @@ class ModuleLoader:
 			self.loaded = False
 
 			self.stop_event = threading.Event()
-			self.thread = threading.Thread(target=self.update_modules_loop)
+			self.thread = threading.Thread(target=self.update_configs_loop)
 
 			# Load modules
 			self.available_modules = []
@@ -207,7 +207,7 @@ class ModuleLoader:
 		#Replace existing object with the new one
 		self.hook_instances = updated_hook_instances
 
-	def update_modules_loop(self):
+	def update_configs_loop(self):
 		last_modified_time = 0
 		while True:
 			current_modified_time = os.path.getmtime("configs.yaml")
@@ -219,12 +219,12 @@ class ModuleLoader:
 
 			time.sleep(1)
 
-	def start_update_modules_loop_thread(self):
-		self.update_modules_loop_thread = threading.Thread(target=self.update_modules_loop)
-		self.update_modules_loop_thread.start()
+	def start_update_configs_loop_thread(self):
+		self.update_configs_loop_thread = threading.Thread(target=self.update_configs_loop)
+		self.update_configs_loop_thread.start()
 
-	def stop_update_modules_loop_thread(self):
-		self.update_modules_loop_thread.stop()
+	def stop_update_configs_loop_thread(self):
+		self.update_configs_loop_thread.stop()
 
 	def enable_module(self, module_name):
 		logging.info("Enabling module: " + module_name)

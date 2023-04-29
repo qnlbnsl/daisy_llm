@@ -7,6 +7,8 @@ Install package
 pip install daisy_llm
 ```
 
+Import into your project and use. See main-example.py
+
 
 Create ```config.py``` in your project with necessary information and enable desired modules to be loaded. See [Daisy-openai-chat](https://github.com/myrakrusemark/Daisy-openAI-chat) for sample project and a collection of modules to get started
 

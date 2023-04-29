@@ -8,7 +8,7 @@ version = "0.0.4"
 authors = [
     { name = "Myra Krusemark", email = "daisy_llm@myrakrusemark.com" }
 ]
-description = "A toolkit for working and conversing with large language models."
+description = "A toolkit for working and conversing with large language models. Featuring tokenized sentence queueing for TTS."
 readme = "README.md"
 requires-python = ">=3.11.1"
 classifiers = [

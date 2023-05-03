@@ -12,7 +12,7 @@ class ConnectionStatus(threading.Thread):
         self.is_connected = False
         self.last_loss_time = None
 
-    def check_internet(self, stop_event, awake_stop_event):
+    def check_internet(self, stop_event, awake_stop_event=None):
         """Creates and starts a new CheckInternetThread instance, waits for it to complete or timeout, and returns a boolean value indicating if internet connectivity is available."""
 
         while not stop_event.is_set():
@@ -37,10 +37,12 @@ class ConnectionStatus(threading.Thread):
                     if self.last_loss_time is None:
                         self.last_loss_time = now
                     elif now - self.last_loss_time >= 10:
-                        awake_stop_event.set()
+                        if awake_stop_event is not None:
+                            awake_stop_event.set()
                         logging.error("No Internet connection for at least 10 seconds.")
                     else:
-                        awake_stop_event.clear()
+                        if awake_stop_event is not None:
+                            awake_stop_event.clear()
                     # Log a warning message to indicate that the Internet is not available
                     logging.debug('Internet connection is not available')
 
@@ -50,10 +52,12 @@ class ConnectionStatus(threading.Thread):
                 if self.last_loss_time is None:
                     self.last_loss_time = now
                 elif now - self.last_loss_time >= 10:
-                    awake_stop_event.set()
+                    if awake_stop_event is not None:
+                        awake_stop_event.set()
                     logging.error("No Internet connection for at least 10 seconds.")
                 else:
-                    awake_stop_event.clear()
+                    if awake_stop_event is not None:
+                        awake_stop_event.clear()
                 # Log a warning message to indicate that the Internet is not available
                 logging.debug('Internet connection is not available')
             except Exception as e:
@@ -61,6 +65,6 @@ class ConnectionStatus(threading.Thread):
                 logging.exception(e)
 
             # Check if the thread is connected and cancel the loop if it is
-            if not self.is_connected:
+            if not self.is_connected and awake_stop_event is not None:
                 awake_stop_event.clear()
             time.sleep(1)

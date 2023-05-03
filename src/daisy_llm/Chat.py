@@ -158,7 +158,7 @@ class Chat:
 
 	def toolform_checker(
 			self, 
-			messages, 
+			messages=None, 
 			stop_event=None, 
 			response_label=True,
 			model='gpt-3.5-turbo'
@@ -174,42 +174,10 @@ class Chat:
 
 			if "Chat_request_inner" in hook_instances:
 
-				#Create a tool-chooser prompt
-				prompt = """1. "Tools" contains a list of available tools for you to use.
-2. Choose one, or more, or None of the tools that are most useful given the context of the "Conversation".
-4. Format your response using JSON, like this: [{"name":"tool_form_name", "arg":"tool_form_argument"}]
-5. If you choose more than one tool, create an list. Like this: [{"name":"tool_form_name", "arg":"tool_form_argument"}, {"name":"tool_form_name", "arg":"tool_form_argument"}]
-6. If you choose no tools, respond with ["None"].
-7. Your response will be parsed in a computer program. Do not include any additional text in your response.
-8. "Conversation" starts with the earliest message and ends with the most recent message.
-9. If the latest message changes the subject of the conversation, even if an earlier message is still relevant, you may respond with ["None"].
-
-Tools:
-"""
-				#Add all available tools to the prompt
-				for module in self.ml.get_available_modules():
-					if "tool_form_name" in module:
-						prompt += '{"name":"'
-						if "tool_form_name" in module:
-							prompt += module["tool_form_name"]+'", "arg":"'
-						if "tool_form_argument" in module:
-							prompt += module["tool_form_argument"]+'"}\n'
-						if "tool_form_description" in module:
-							prompt += module["tool_form_description"]+"\n\n"
-
-				#Get the last three messages and add them to the prompt
-				prompt += "Conversation:\n"
-				last_three_messages = messages[-3:]
-				for message in last_three_messages:
-					prompt += str(message)+"\n"
-				logging.info(prompt)
-				message = [{'role': 'system', 'content': prompt}]
-				logging.info(prompt)
-
-			
+				prompt = self.build_toolform_checker_prompt(messages)
 
 				response = self.request(
-					messages=message, 
+					messages=prompt, 
 					stop_event=stop_event, 
 					tool_check=False,
 					model=model,
@@ -221,50 +189,51 @@ Tools:
 
 				#Parse JSON response
 				data = None
-				start_index = response.find('[')
-				if start_index >= 0:
-					end_index = response.find(']', start_index) + 1
-					json_data = response[start_index:end_index]
-					try:
-						# Check if the input string matches the expected JSON format
-						if not re.fullmatch(r'\[.*\]', json_data):
-							# Input string does not match expected format
-							logging.warning('Input is not valid JSON')
-						else:
-							# Attempt to load the input string as JSON
-							try:
-								data = json.loads(json_data)
-								logging.info('Data:' + str(data))
-							except json.decoder.JSONDecodeError as e:
-								# Input string contains errors, attempt to fix them
-								logging.error('JSONDecodeError:', e)
-								
-								# Search for keys with missing values
-								match = json_data.search(json_data)
-								if match:
-									# Replace missing values with empty strings
-									fixed_str = json_data[:match.end()] + '""' + json_data[match.end()+1:]
-									logging.warning('Fixed input:', fixed_str)
-									try:
-										data = json.loads(fixed_str)
-										logging.info('Data:'+ str(data))
-									except json.decoder.JSONDecodeError:
+				if response:
+					start_index = response.find('[')
+					if start_index >= 0:
+						end_index = response.find(']', start_index) + 1
+						json_data = response[start_index:end_index]
+						try:
+							# Check if the input string matches the expected JSON format
+							if not re.fullmatch(r'\[.*\]', json_data):
+								# Input string does not match expected format
+								logging.warning('Input is not valid JSON')
+							else:
+								# Attempt to load the input string as JSON
+								try:
+									data = json.loads(json_data)
+									logging.info('Data:' + str(data))
+								except json.decoder.JSONDecodeError as e:
+									# Input string contains errors, attempt to fix them
+									logging.error('JSONDecodeError:', e)
+									
+									# Search for keys with missing values
+									match = json_data.search(json_data)
+									if match:
+										# Replace missing values with empty strings
+										fixed_str = json_data[:match.end()] + '""' + json_data[match.end()+1:]
+										logging.warning('Fixed input:', str(fixed_str))
+										try:
+											data = json.loads(fixed_str)
+											logging.info('Data:'+ str(data))
+										except json.decoder.JSONDecodeError:
+											logging.error('Could not fix input')
+									else:
 										logging.error('Could not fix input')
-								else:
-									logging.error('Could not fix input')
-	    
-						#data = json.loads(json_data)
+			
+							#data = json.loads(json_data)
 
 
-					except json.decoder.JSONDecodeError as e:
-						logging.error("JSONDecodeError: "+str(e))
-						data = None
-					if data and data[0] == "None":
-						data = None
-				else:
-					logging.warning("No JSON data found in string.")
+						except json.decoder.JSONDecodeError as e:
+							logging.error("JSONDecodeError: "+str(e))
+							data = None
+						if data and data[0] == "None":
+							data = None
+					else:
+						logging.warning("No JSON data found in string.")
 
-				logging.info("Tool form chosen: "+str(data))
+					logging.info("Tool form chosen: "+str(data))
 				
 				prompt = ""
 				if data:
@@ -290,6 +259,46 @@ Tools:
 					logging.info("No data found.")
 					return False
 		return False
+
+	def build_toolform_checker_prompt(self, messages=None):
+						#Create a tool-chooser prompt
+		prompt = """1. "Tools" contains a list of available tools for you to use.
+2. Choose one, or more, or None of the tools that are most useful given context.
+3. Format your response using JSON, like this: [{"name":"tool_form_name", "arg":"tool_form_argument"}]
+4. If you choose more than one tool, create an list. Like this: [{"name":"tool_form_name", "arg":"tool_form_argument"}, {"name":"tool_form_name", "arg":"tool_form_argument"}]
+5. If you choose no tools, respond with ["None"].
+6. Your response will be parsed in a computer program. Do not include any additional text in your response.
+
+Tools:
+"""
+
+		#Add all available tools to the prompt
+		for module in self.ml.get_available_modules():
+			if "tool_form_name" in module:
+				prompt += '{"name":"'
+				if "tool_form_name" in module:
+					prompt += module["tool_form_name"]+'", "arg":"'
+				if "tool_form_argument" in module:
+					prompt += module["tool_form_argument"]+'"}\n'
+				if "tool_form_description" in module:
+					prompt += module["tool_form_description"]+"\n\n"
+
+		message = None
+		if messages:	
+			prompt += """7. Choose one, or more, or None of the tools that are most useful given the context of the "Conversation".
+8. "Conversation" starts with the earliest message and ends with the most recent message.
+9. If the latest message changes the subject of the conversation, even if an earlier message is still relevant, you may respond with ["None"].
+
+Conversation:
+"""
+			#Get the last three messages and add them to the prompt
+			last_three_messages = messages[-3:]
+			for message in last_three_messages:
+				prompt += str(message)+"\n"
+			logging.info(prompt)
+			message = [{'role': 'system', 'content': prompt}]
+		
+		return message
 
 
 	def stream_queue_sentences(self, arguments_dict):

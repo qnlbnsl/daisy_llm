@@ -314,6 +314,9 @@ class ContextHandlers:
 				if response_match:
 					response_json = response_match.group(0)
 					break
+				elif response == "Empty":
+					response_json = '{"name": "Empty Conversation", "summary": "None"}'
+					break
 				else:
 					logging.error("Invalid response format while setting conversation name and summary. Trying again...")
 

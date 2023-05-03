@@ -5,6 +5,8 @@ import yaml
 import time
 import threading
 import concurrent.futures
+import pubsub as pub
+
 
 
 from ruamel.yaml import YAML
@@ -25,7 +27,9 @@ class ModuleLoader:
 		self.ch = ch
 		self.configs_yaml = configs_yaml
 		self.passed_modules = modules
-	
+
+		self.messaging_system = MessagingSystem()		
+
 		if not ModuleLoader.initialized:
 			ModuleLoader.initialized = True
 
@@ -298,3 +302,17 @@ class ModuleLoader:
 
 				# Wait for some time before checking for updates again
 				time.sleep(1)
+
+
+class MessagingSystem:
+	def __init__(self):
+		pass
+
+	def subscribe(self, channel):
+		return pub.subscribe(channel)
+
+	def publish(self, event, message):
+		pub.sendMessage(event, message=message)
+	
+	def listen(self, msg_q, block=True, timeout=None):
+		pub.listen(msg_q, block, timeout=None)

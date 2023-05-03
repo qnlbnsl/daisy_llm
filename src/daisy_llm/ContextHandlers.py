@@ -162,7 +162,6 @@ class ContextHandlers:
 
 	def get_context_without_timestamp(self):
 		messages_without_timestamp = []
-
 		for message in self.get_context():
 			message_without_timestamp = message.copy()
 			del message_without_timestamp['timestamp']
@@ -374,7 +373,7 @@ class ContextHandlers:
 			else:
 				return None
 			
-	def get_conversation_context_by_id(self, conversation_id, include_timestamp=True):
+	def get_conversation_context_by_id(self, conversation_id, include_timestamp=True, include_system=False):
 		# Check if the conversation ID exists in the database
 		with self.connection_pool.get_connection() as conn:
 			cursor = conn.cursor()
@@ -398,11 +397,13 @@ class ContextHandlers:
 					message = json.loads(row[0])
 					if not include_timestamp:
 						message.pop('timestamp', None)
-					context.append(message)
+					if include_system or message['role'] != 'system':
+						context.append(message)
 
 			return context
 		else:
 			return None
+
 
 	def set_conversation_by_id(self, conversation_id):
 		if str(conversation_id).isdigit():

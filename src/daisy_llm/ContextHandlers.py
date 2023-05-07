@@ -19,8 +19,6 @@ class ConnectionPool:
 		self.connections = {}
 		self.lock = threading.Lock()
 
-
-
 	def get_connection(self):
 		thread_id = threading.get_ident()
 		self.lock.acquire()
@@ -54,7 +52,7 @@ class ContextHandlers:
 	def __init__(self, db_path):
 		self.chat = Chat()
 
-		#Get and set conversation_id from configs.yaml
+		# Get and set conversation_id from configs.yaml
 		self.conversation_id = None
 		with open("configs.yaml", "r") as f:
 			configs = yaml.load(f)
@@ -62,18 +60,15 @@ class ContextHandlers:
 			self.conversation_id = configs.get("conversation_id")
 			logging.info("Using conversation id from configs: " + str(self.conversation_id))
 
-
 		self.db_path = db_path
 		self.messages = []
 		self.start_prompts = []
 		self.connection_pool = ConnectionPool(db_path)
 
-
 	def load_context(self):
 		self.messages = []
 		self.create_conversations_table_if_not_exists()
 		with self.connection_pool.get_connection() as conn:
-
 			cursor = conn.cursor()
 
 			# If conversation_id is not set, create a new conversation ID
@@ -87,12 +82,16 @@ class ContextHandlers:
 
 			# Get the messages from the conversation ID
 			cursor.execute('''
-				SELECT * FROM messages WHERE id = ?
+				SELECT * FROM messages WHERE conversation_id = ?
 			''', (self.conversation_id,))
 			rows = cursor.fetchall()
 			if rows:
 				for row in rows:
-					message = json.loads(row[1])
+					message = {
+						'timestamp': row[1],
+						'role': row[2],
+						'message': row[3]
+					}
 					self.messages.append(message)
 				print_text("Loaded "+ str(len(rows)) + " messages from conversation id: " + str(self.conversation_id), "yellow", "\n")
 
@@ -101,7 +100,9 @@ class ContextHandlers:
 			cursor = conn.cursor()
 			cursor.execute('''
 				CREATE TABLE IF NOT EXISTS messages (
-					id TEXT NOT NULL,
+					conversation_id TEXT NOT NULL,
+					timestamp TEXT NOT NULL,
+					role TEXT NOT NULL,
 					message TEXT NOT NULL
 				);
 			''')
@@ -135,18 +136,18 @@ class ContextHandlers:
 
 			# Save messages
 			conn.execute('''
-				DELETE FROM messages WHERE id = ?;
+				DELETE FROM messages WHERE conversation_id = ?;
 			''', (self.conversation_id,))
 			for message in self.messages:
-				json_message = json.dumps(message)
 				conn.execute('''
-					INSERT INTO messages (id, message) VALUES (?, ?);
-				''', (self.conversation_id, json_message,))
+					INSERT INTO messages (conversation_id, timestamp, role, message)
+					VALUES (?, ?, ?, ?);
+				''', (self.conversation_id, message['timestamp'], message['role'], message['content']))
 			conn.execute('''
 				COMMIT;
 			''')
 			row_count = conn.execute('''
-				SELECT COUNT(*) FROM messages WHERE id = ?;
+				SELECT COUNT(*) FROM messages WHERE conversation_id = ?;
 			''', (self.conversation_id,)).fetchone()[0]
 			logging.info(f"Inserted {row_count} rows for conversation {self.conversation_id}.")
 
@@ -188,7 +189,7 @@ class ContextHandlers:
 			return {'role': role, 'timestamp': timestamp, 'content': str(message)}
 		else:
 			return {'role': role, 'content': str(message)}
-
+		
 	def add_start_prompt(self, role="system", message=""):
 		start_prompt = self.single_message_context(role, message)
 		self.start_prompts.append(start_prompt)
@@ -337,6 +338,8 @@ class ContextHandlers:
 
 			logging.info("Name and summary updated for conversation " + conv_id + ": " + response_obj["name"])
 
+
+
 	def get_conversation_ids(self):
 		with self.connection_pool.get_connection() as conn:
 			cursor = conn.cursor()
@@ -364,15 +367,15 @@ class ContextHandlers:
 		with self.connection_pool.get_connection() as conn:
 			cursor = conn.cursor()
 			cursor.execute(
-				'''SELECT name FROM conversations WHERE id = ?''',
-				(conversation_id,)
+					'''SELECT name FROM conversations WHERE id = ?''',
+					(conversation_id,)
 			)
 			row = cursor.fetchone()
 			if row:
 				return row[0]
 			else:
 				return None
-			
+
 	def get_conversation_context_by_id(self, conversation_id, include_timestamp=True, include_system=False):
 		# Check if the conversation ID exists in the database
 		with self.connection_pool.get_connection() as conn:
@@ -387,14 +390,18 @@ class ContextHandlers:
 			with self.connection_pool.get_connection() as conn:
 				cursor = conn.cursor()
 				cursor.execute('''
-					SELECT message FROM messages WHERE id = ?;
+					SELECT timestamp, role, message FROM messages WHERE conversation_id = ?;
 				''', (conversation_id,))
 				rows = cursor.fetchall()
 
 			context = []
 			if rows:
 				for row in rows:
-					message = json.loads(row[0])
+					message = {
+						'timestamp': row[0],
+						'role': row[1],
+						'content': row[2]
+					}
 					if not include_timestamp:
 						message.pop('timestamp', None)
 					if include_system or message['role'] != 'system':
@@ -403,71 +410,3 @@ class ContextHandlers:
 			return context
 		else:
 			return None
-
-
-	def set_conversation_by_id(self, conversation_id):
-		if str(conversation_id).isdigit():
-			conversation_id = int(conversation_id)
-		else:
-			return False
-			
-		logging.info("Setting conversation ID: " + str(conversation_id))
-		
-		# Check if the conversation ID exists in the database
-		with self.connection_pool.get_connection() as conn:
-			cursor = conn.cursor()
-			cursor.execute('''
-				SELECT id FROM conversations WHERE id = ?;
-			''', (conversation_id,))
-			row = cursor.fetchone()
-		
-		if row:
-			# Set the conversation ID in configs.yaml
-			with open("configs.yaml", "r") as f:
-				configs = yaml.load(f)
-			configs['conversation_id'] = conversation_id
-			with open("configs.yaml", "w") as f:
-				yaml.dump(configs, f)
-			
-			# Update the conversation ID and load the context
-			self.conversation_id = conversation_id
-			self.load_context()
-			return True
-		else:
-			return False
-		
-	def delete_conversation_by_id(self, conversation_id):
-		logging.info("Deleting conversation ID: " + conversation_id)
-		
-		# Check if the conversation ID exists in the database
-		with self.connection_pool.get_connection() as conn:
-			cursor = conn.cursor()
-			cursor.execute('''
-				SELECT id FROM conversations WHERE id = ?;
-			''', (conversation_id,))
-			row = cursor.fetchone()
-		
-		if row:
-			# Delete the conversation from the database
-			with self.connection_pool.get_connection() as conn:
-				cursor = conn.cursor()
-				cursor.execute('''
-					DELETE FROM conversations WHERE id = ?;
-					DELETE FROM messages WHERE id = ?;
-				''', (conversation_id, conversation_id,))
-				conn.commit()
-			
-			# Clear the conversation ID in configs.yaml if it matches the deleted conversation
-			with open("configs.yaml", "r") as f:
-				configs = yaml.load(f)
-			if configs.get('conversation_id') == conversation_id:
-				configs['conversation_id'] = None
-				with open("configs.yaml", "w") as f:
-					yaml.dump(configs, f)
-			
-			# Reset the conversation ID and reload the context
-			self.conversation_id = None
-			self.load_context()
-			return True
-		else:
-			return False

@@ -36,10 +36,11 @@ class Chat:
 		 stop_event=None,
 		 sound_stop_event=None,
 		 tts=None,
-		 tool_check=True,
+		 tool_check=False,
 		 model="gpt-3.5-turbo",
 		 silent=False,
-		 response_label=True
+		 response_label=True,
+		 temperature = 0.7
 		 ):
 		#Handle LLM request. Optionally convert to sentences and queue for tts, if needed.
 
@@ -62,7 +63,8 @@ class Chat:
 		return_text = [""]
 
 		#If tool check enabled, find the appropriate tool, and append the output to the messages list.
-		if tool_check:
+		"""if tool_check:
+
 			response = self.toolform_checker(
 				messages=messages, 
 				stop_event=stop_event,
@@ -76,7 +78,7 @@ class Chat:
 
 				#Append to CH_context, and the local messages list.
 				self.ch.add_message_object("system", response)
-				messages.append(self.ch.single_message_context("system", response, False))
+				messages.append(self.ch.single_message_context("system", response, False))"""
 
 		#pprint.pprint(messages)
 		try:
@@ -84,7 +86,7 @@ class Chat:
 			response = openai.ChatCompletion.create(
 				model=model,
 				messages=messages,
-				temperature=0.7,
+				temperature=temperature,
 				stream=True,
 				request_timeout=5,
 			)
@@ -152,17 +154,18 @@ class Chat:
 			#self.csp.tts("Value Error. Sorry, I can't talk right now.")
 			return False    
 		except TypeError as e:
-			logging.error(f"Type Error: {e}")
+			logging.error("Type Error:"+e)
 			#self.csp.tts("Type Error. Sorry, I can't talk right now.")
 			return False  
 
-	def toolform_checker(
+	def determine_and_run_commands(
 			self, 
 			messages=None, 
 			stop_event=None, 
 			response_label=True,
 			model='gpt-3.5-turbo'
 			):
+		output = "There was an error."
 		logging.info("Checking for tool forms...")
 
 		#HOOK: Chat_request_inner
@@ -173,120 +176,187 @@ class Chat:
 			logging.debug(hook_instances)
 
 			if "Chat_request_inner" in hook_instances:
-
-				prompt = self.build_toolform_checker_prompt(messages)
-
-				response = self.request(
-					messages=prompt, 
-					stop_event=stop_event, 
-					tool_check=False,
-					model=model,
-					silent=True,
-					response_label=response_label
-					)
-
-				logging.info("Tool form response: "+str(response))
-
-				#Parse JSON response
-				data = None
-				if response:
-					start_index = response.find('[')
-					if start_index >= 0:
-						end_index = response.find(']', start_index) + 1
-						json_data = response[start_index:end_index]
-						try:
-							# Check if the input string matches the expected JSON format
-							if not re.fullmatch(r'\[.*\]', json_data):
-								# Input string does not match expected format
-								logging.warning('Input is not valid JSON')
-							else:
-								# Attempt to load the input string as JSON
-								try:
-									data = json.loads(json_data)
-									logging.info('Data:' + str(data))
-								except json.decoder.JSONDecodeError as e:
-									# Input string contains errors, attempt to fix them
-									logging.error('JSONDecodeError:', e)
-									
-									# Search for keys with missing values
-									match = json_data.search(json_data)
-									if match:
-										# Replace missing values with empty strings
-										fixed_str = json_data[:match.end()] + '""' + json_data[match.end()+1:]
-										logging.warning('Fixed input:', str(fixed_str))
-										try:
-											data = json.loads(fixed_str)
-											logging.info('Data:'+ str(data))
-										except json.decoder.JSONDecodeError:
-											logging.error('Could not fix input')
-									else:
-										logging.error('Could not fix input')
-			
-							#data = json.loads(json_data)
-
-
-						except json.decoder.JSONDecodeError as e:
-							logging.error("JSONDecodeError: "+str(e))
-							data = None
-						if data and data[0] == "None":
-							data = None
-					else:
-						logging.warning("No JSON data found in string.")
-
-					logging.info("Tool form chosen: "+str(data))
+				prompt = self.build_commands_checker_prompt(messages)
 				
-				prompt = ""
-				if data:
-					for d in data:
+				try:
+					response = self.request(
+						messages=prompt, 
+						stop_event=stop_event, 
+						model=model,
+						response_label=response_label
+					)
+				except Exception as e:
+					logging.error("Daisy request error: "+ str(e))
+					return "chatCompletion error"
+
+				commands = None
+				if response:
+					commands = self.get_json_data(response)
+
+				logging.info("Commands chosen: "+str(commands))
+
+				if commands:
+					#Get goal
+					if 'goal' in commands[0]:
+						goal = commands[0]['goal']
+					else:
+						goal = ""
+					#Get commands sequence
+					command_sequence = commands[0]['command_sequence']
+
+					messages = []
+					for command in command_sequence:
 						for module in self.ml.get_available_modules():
 							if "tool_form_name" in module:
-								if module["tool_form_name"] == d["name"]:
-									print_text("Tool: ", "green")
-									print_text(module["tool_form_name"] + " (" + d['arg']+")", None, "\n\n")
+								if module["tool_form_name"] == command["command"]:
 
 									class_name = module["class_name"]
 									chat_request_inner_hook_instances = self.ml.get_hook_instances()["Chat_request_inner"]
 									for instance in chat_request_inner_hook_instances:
 										if instance.__class__.__name__ == class_name.split(".")[-1]:
 											logging.info("Found instance: "+instance.__class__.__name__)
-											result = instance.main(d['arg'], stop_event)
 
-											prompt += """Below is the response from the tool: """+module["tool_form_name"]+". It is the information the user is requesting.  Don't mention the existence of this information. Use it to continue the conversation. If the information is irrelevant to the conversation, then ignore it.\n"
-											prompt += "\n"+result+"\n"
-				if prompt:
-					return prompt
+											#Get the argument
+											prompt = "1. To achieve this goal: "+goal+"\n"
+											prompt += "2. Respond to 'Answer' with the argument required for the following tool:\n"
+											prompt += "	Command: "+module["tool_form_name"]+"\n"
+											prompt += "	Description: "+module["tool_form_description"]+"\n"
+											prompt += "	Argument: <"+module["tool_form_argument"]+">\n"
+											prompt += "Answer: "
+
+
+											print_text("SYSTEM:", "red", "", "bold")
+											print_text(prompt, None, "\n")
+											messages.append(self.ch.single_message_context('system', prompt, False))
+											try:
+												response = self.request(
+													model="gpt-4", #Much better at following the rules
+													messages=messages,
+													stop_event=stop_event
+													)
+											except Exception as e:
+												logging.error("Daisy request error: "+ str(e))
+												break
+
+											if not response:
+												logging.error("Daisy request error: No response")
+												break
+
+											arg = response
+
+											#Decalre and run the tool
+											print_text("Tool: ", "green")
+											print_text(module["tool_form_name"] + " (" + arg + ")", None, "\n\n")
+
+											output = "Below is the information from the command: "+module["tool_form_name"]+". Use it in your response.\n"
+											output = instance.main(arg, stop_event)
+
+											print_text("SYSTEM:", "red", "", "bold")
+											print_text(output, None, "\n")
+											messages.append(self.ch.single_message_context('system', output, False))
+
+
+					prompt = "Respond with a list or summary of the tasks completed to accomplish the goal: "+goal+"\n"
+					messages.append(self.ch.single_message_context('system', prompt, False))
+
+					try:
+						result = self.request(
+							model="gpt-4", #Much better at incorporating SYSTEM messages into its context
+							messages=messages,
+							stop_event=stop_event
+							)
+					except Exception as e:
+						logging.error("Daisy request error: "+ str(e))
+						return "chatCompletion error"
+
+
+					output = "Below is a response to a command in response to the user's request. Use the inormation in your response.\n"
+					output += result
+
+
 				else:
 					logging.info("No data found.")
-					return False
-		return False
+					output = "Could not cooperate with LLM to determine commands to run for goal: "+goal
 
-	def build_toolform_checker_prompt(self, messages=None):
+		return output
+	
+
+
+	def get_json_data(self, string):
+		data = None
+		start_index = string.find('[')
+		if start_index >= 0:
+			end_index = string.rfind(']')+1
+			json_data = string[start_index:end_index]
+			try:
+
+				try:
+					data = json.loads(json_data)
+					logging.info('Data:' + str(data))
+				except json.decoder.JSONDecodeError as e:
+					# Input string contains errors, attempt to fix them
+					logging.error('JSONDecodeError:', e)
+					
+					# Search for keys with missing values
+					match = json_data.search(json_data)
+					if match:
+						# Replace missing values with empty strings
+						fixed_str = json_data[:match.end()] + '""' + json_data[match.end()+1:]
+						logging.warning('Fixed input:', str(fixed_str))
+						try:
+							data = json.loads(fixed_str)
+							logging.info('Data:'+ str(data))
+						except json.decoder.JSONDecodeError:
+							logging.error('Could not fix input')
+					else:
+						logging.error('Could not fix input')
+
+			except json.decoder.JSONDecodeError as e:
+				logging.error("JSONDecodeError: "+str(e))
+				data = None
+			if data and data[0] == "None":
+				data = None
+		else:
+			logging.warning("No JSON data found in string.")
+			data = None
+		return data
+
+	def build_commands_checker_prompt(self, messages=None):
 						#Create a tool-chooser prompt
-		prompt = """1. "Tools" contains a list of available tools for you to use.
-2. Choose one, or more, or None of the tools that are most useful given context.
-3. Format your response using JSON, like this: [{"name":"tool_form_name", "arg":"tool_form_argument"}]
-4. If you choose more than one tool, create an list. Like this: [{"name":"tool_form_name", "arg":"tool_form_argument"}, {"name":"tool_form_name", "arg":"tool_form_argument"}]
-5. If you choose no tools, respond with ["None"].
-6. Your response will be parsed in a computer program. Do not include any additional text in your response.
-
-Tools:
+		prompt = """1. "Commands" contains a list of available tools for you to use.
+2. Choose one or more commands to be run sequentially that are most useful given context.
+3. Format your response using JSON.
+4. Your response will be parsed in a computer program. Do not include any additional text in your response.
 """
-
-		#Add all available tools to the prompt
+		prompt += "\n"
+		prompt += "Commands:\n"
+		i=1
 		for module in self.ml.get_available_modules():
-			if "tool_form_name" in module:
-				prompt += '{"name":"'
-				if "tool_form_name" in module:
-					prompt += module["tool_form_name"]+'", "arg":"'
-				if "tool_form_argument" in module:
-					prompt += module["tool_form_argument"]+'"}\n'
-				if "tool_form_description" in module:
-					prompt += module["tool_form_description"]+"\n\n"
 
+			if 'tool_form_name' in module:
+				prompt += f"{i}. "
+				prompt += f"Name: {module['tool_form_name']}\n"
+				i+=1
+				if 'tool_form_description' in module:
+					prompt += f"Description: {module['tool_form_description']}\n"
+				prompt += "\n"
+		i+=1
+		prompt += str(i)+". Name: Do nothing\n"
+		prompt += str(i)+". Description: No other commands needs to be called\n"
+
+		prompt += "You should only respond in JSON format as described below \n"
+		prompt += "Response Format: \n"
+		prompt += "[{\n"
+		prompt += '	"goal": "goal to be achieved"\n'
+		prompt += '	"command_sequence": [\n'
+		prompt += '		{"command": "name"}\n'
+		prompt += '	]\n'
+		prompt += '}]\n'
+		prompt += "\n"
+		prompt += "Ensure the response can be parsed by Python json.loads"
 		message = None
 		if messages:	
-			prompt += """7. Choose one, or more, or None of the tools that are most useful given the context of the "Conversation".
-8. "Conversation" starts with the earliest message and ends with the most recent message.
+			prompt += """8. "Conversation" starts with the earliest message and ends with the most recent message.
 9. If the latest message changes the subject of the conversation, even if an earlier message is still relevant, you may respond with ["None"].
 
 Conversation:
@@ -360,4 +430,3 @@ Conversation:
 		for message in chat_handlers.get_context():
 			# Check if the message role is in the list of roles to display
 			print(f"{message['role'].upper()}: {message['content']}\n\n")
-

@@ -151,15 +151,20 @@ class ContextHandlers:
 			''', (self.conversation_id,)).fetchone()[0]
 			logging.info(f"Inserted {row_count} rows for conversation {self.conversation_id}.")
 
-	def get_context(self):
+	def get_context(self, include_timestamp=True, include_system=True):
 		context = []
 		#Append start prompts to messages
 		for start_prompt in self.start_prompts:
 			context.append(start_prompt)
 
 		for message in self.messages:
-			context.append(message)
+			if include_system or message['role'] != 'system':
+				new_message = {'role': message['role'], 'content': message['content']}
+				if include_timestamp:
+					new_message['timestamp'] = message['timestamp']
+				context.append(new_message)
 		return context
+
 
 	def get_context_without_timestamp(self):
 		messages_without_timestamp = []

@@ -48,7 +48,11 @@ dependencies = [
 "tqdm",
 "urllib3",
 "websockets",
-"yarl"
+"yarl",
+"torch",
+"transformers",
+"scipy",
+"scikit-learn"
 ]
 
 [project.urls]

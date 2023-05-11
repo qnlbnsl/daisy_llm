@@ -11,6 +11,7 @@ import re
 from .ChatSpeechProcessor import ChatSpeechProcessor
 from .SoundManager import SoundManager
 from .Text import print_text, delete_last_lines
+from .CommandHandlers import CommandHandlers
 import pprint
 
 
@@ -24,6 +25,7 @@ class Chat:
 		self.ch = ch
 		self.csp = ChatSpeechProcessor()
 		self.sounds = SoundManager()
+		self.commh = CommandHandlers(self.ml)
 
 		with open("configs.yaml", "r") as f:
 			self.configs = yaml.safe_load(f)
@@ -175,40 +177,71 @@ class Chat:
 			hook_instances = self.ml.get_hook_instances()
 			logging.debug(hook_instances)
 
+			run_commands_messages = []
 			if "Chat_request_inner" in hook_instances:
-				prompt = self.build_commands_checker_prompt(messages)
-				
-				try:
-					response = self.request(
-						messages=prompt, 
-						stop_event=stop_event, 
-						model=model,
-						response_label=response_label
-					)
-				except Exception as e:
-					logging.error("Daisy request error: "+ str(e))
-					return "chatCompletion error"
 
-				commands = None
-				if response:
-					commands = self.get_json_data(response)
+				goal = self.get_goal_from_conversation(messages, stop_event)
+				best_command, best_command_argument, best_command_confidence, next_best_command, next_best_command_argument, next_best_command_confidence = self.commh.determine_command(goal)
 
-				logging.info("Commands chosen: "+str(commands))
+				print_text(str(best_command), "green", "", "bold")
+				'''
+				#Get the argument
+				prompt = "Respond with the necessary argument for the command based on messages in Conversation.\n"
+				prompt += "Command: "+best_command+"\n"
+				prompt += "Argument: "+best_command_argument+"\n"
+				prompt += "\n"
+				prompt += "Conversation:\n"
+				#Get the last three messages and add them to the prompt
+				last_three_messages = messages[-3:]
+				for message in last_three_messages:
+					prompt += message['role'].upper()+": "
+					prompt += message['content']+"\n"
+				prompt = messages[-1]['content']
 
-				if commands:
-					#Get goal
-					if 'goal' in commands[0]:
-						goal = commands[0]['goal']
-					else:
-						goal = ""
-					#Get commands sequence
-					command_sequence = commands[0]['command_sequence']
+					#Determine goal and first command
 
-					messages = []
-					for command in command_sequence:
+
+				while goal is not None:
+
+					prompt = self.build_commands_checker_prompt(goal=goal)
+					temp_messages = run_commands_messages.copy()
+					message = self.ch.single_message_context('user', prompt, False)
+					temp_messages.append(message)
+
+					#print(run_commands_messages)
+					try:
+						response = self.request(
+							messages=temp_messages, 
+							model="gpt-4", #Best at choosing tools
+							stop_event=stop_event, 
+							response_label=response_label
+						)
+					except Exception as e:
+						logging.error("Daisy request error: "+ str(e))
+						return "chatCompletion error"
+
+					data = None
+					if response:
+						data = self.get_json_data(response)
+
+					if data:
+						#if data, then add it to context
+						print_text("USER:", "red", "", "bold")
+						print_text(prompt, None, "\n")
+						run_commands_messages.append(self.ch.single_message_context('user', message, False))
+						run_commands_messages.append(self.ch.single_message_context('assistant', response, False))
+
+						command = data[0]['command']
+						if command == "Goal Accomplished":
+							text = "Goal Accomplished"
+							print_text("USER:", "red", "", "bold")
+							print_text(text, None, "\n")
+							
+							run_commands_messages.append(self.ch.single_message_context('user', text, False))
+							break
 						for module in self.ml.get_available_modules():
 							if "tool_form_name" in module:
-								if module["tool_form_name"] == command["command"]:
+								if module["tool_form_name"] == command:
 
 									class_name = module["class_name"]
 									chat_request_inner_hook_instances = self.ml.get_hook_instances()["Chat_request_inner"]
@@ -222,16 +255,15 @@ class Chat:
 											prompt += "	Command: "+module["tool_form_name"]+"\n"
 											prompt += "	Description: "+module["tool_form_description"]+"\n"
 											prompt += "	Argument: <"+module["tool_form_argument"]+">\n"
-											prompt += "Answer: "
+											prompt += "The argument is: "
 
-
-											print_text("SYSTEM:", "red", "", "bold")
+											print_text("USER:", "red", "", "bold")
 											print_text(prompt, None, "\n")
-											messages.append(self.ch.single_message_context('system', prompt, False))
+											run_commands_messages.append(self.ch.single_message_context('user', prompt, False))
 											try:
 												response = self.request(
-													model="gpt-4", #Much better at following the rules
-													messages=messages,
+													#model="gpt-4", #Much better at following the rules
+													messages=run_commands_messages,
 													stop_event=stop_event
 													)
 											except Exception as e:
@@ -244,43 +276,74 @@ class Chat:
 
 											arg = response
 
-											#Decalre and run the tool
+											#Run the command
 											print_text("Tool: ", "green")
 											print_text(module["tool_form_name"] + " (" + arg + ")", None, "\n\n")
 
-											output = "Below is the information from the command: "+module["tool_form_name"]+". Use it in your response.\n"
-											output = instance.main(arg, stop_event)
-
-											print_text("SYSTEM:", "red", "", "bold")
+											output = "Below is the information from the command: "+module["tool_form_name"]+". Use it to accomplish the goal: "+ goal +"\n"
+											output += instance.main(arg, stop_event)
+											print_text("USER:", "red", "", "bold")
 											print_text(output, None, "\n")
-											messages.append(self.ch.single_message_context('system', output, False))
+											run_commands_messages.append(self.ch.single_message_context('user', output, False))
+											print("END OF TOOL")
+				
+
+			prompt = "Provide the answer based on the output above that answers the goal: "+goal
+			print_text("USER:", "red", "", "bold")
+			print_text(prompt, None, "\n")
+			run_commands_messages.append(self.ch.single_message_context('user', prompt, False))
+			print("ONE")
+			try:
+				result = self.request(
+					model="gpt-4", #Much better at incorporating SYSTEM messages into its context
+					messages=run_commands_messages,
+					stop_event=stop_event
+					)
+			except Exception as e:
+				logging.error("Daisy request error: "+ str(e))
+				return "chatCompletion error"
+
+			print("TWO")
+			output = "Below is the response from the user's request. Don't mention this messages existence in your conversation. Use the inormation below in your response.\n"
+			output += result
 
 
-					prompt = "Respond with a list or summary of the tasks completed to accomplish the goal: "+goal+"\n"
-					messages.append(self.ch.single_message_context('system', prompt, False))
-
-					try:
-						result = self.request(
-							model="gpt-4", #Much better at incorporating SYSTEM messages into its context
-							messages=messages,
-							stop_event=stop_event
-							)
-					except Exception as e:
-						logging.error("Daisy request error: "+ str(e))
-						return "chatCompletion error"
-
-
-					output = "Below is a response to a command in response to the user's request. Use the inormation in your response.\n"
-					output += result
-
-
-				else:
-					logging.info("No data found.")
-					output = "Could not cooperate with LLM to determine commands to run for goal: "+goal
-
+		else:
+			logging.info("No data found.")
+			output = "Could not cooperate with LLM to determine commands to run for goal: "+goal
+		print("THREE")
 		return output
+		'''
 	
+	def get_goal_from_conversation(self, messages, stop_event):
+		#Get the argument
+		prompt = "Respond with the goal the user is trying to accomplish. Do not answer the question or have a conversation. Limit prose.\n"
+		prompt += "\n"
+		prompt += "Conversation:\n"
+		#Get the last three messages and add them to the prompt
+		last_three_messages = messages[-3:]
+		for message in last_three_messages:
+			prompt += message['role'].upper()+": "
+			prompt += message['content']+"\n"
+		prompt += "Goal: "
 
+		print(prompt)
+		message = self.ch.single_message_context('user', prompt, False)
+		try:
+			response = self.request(
+				messages=[message],
+				stop_event=stop_event,
+				temperature = 0
+				)
+		except Exception as e:
+			logging.error("Daisy request error: "+ str(e))
+			return None
+
+		if not response:
+			logging.error("Daisy request error: No response")
+			return None
+
+		return response
 
 	def get_json_data(self, string):
 		data = None
@@ -321,54 +384,40 @@ class Chat:
 			data = None
 		return data
 
-	def build_commands_checker_prompt(self, messages=None):
+	def build_commands_checker_prompt(self, goal=None):
 						#Create a tool-chooser prompt
-		prompt = """1. "Commands" contains a list of available tools for you to use.
-2. Choose one or more commands to be run sequentially that are most useful given context.
-3. Format your response using JSON.
-4. Your response will be parsed in a computer program. Do not include any additional text in your response.
-"""
+		prompt = "GOAL: "+goal+"\n"
+		prompt += "1. Refer to previous messages in the conversation to determine what has already been accomplished.\n"
+		prompt += "2. \"Commands\" contains a list of available tools for you to use.\n"
+		prompt += "3. Choose the next command to be run to achieve the goal. Or choose \"Do nothing\" command if an LLM should be able to answer on its own.\n"
+		prompt += "4. Format your response using JSON.\n"
+		prompt += "5. Your response will be parsed in a computer program. Do not include any additional text in your response.\n"
+		prompt += "6. Do not include argumants or any extra information in your JSON response.\n"
 		prompt += "\n"
-		prompt += "Commands:\n"
+		prompt += "	Commands:\n"
 		i=1
 		for module in self.ml.get_available_modules():
 
 			if 'tool_form_name' in module:
-				prompt += f"{i}. "
+				prompt += f"		{i}. "
 				prompt += f"Name: {module['tool_form_name']}\n"
 				i+=1
 				if 'tool_form_description' in module:
-					prompt += f"Description: {module['tool_form_description']}\n"
+					prompt += f"		Description: {module['tool_form_description']}\n"
 				prompt += "\n"
 		i+=1
-		prompt += str(i)+". Name: Do nothing\n"
-		prompt += str(i)+". Description: No other commands needs to be called\n"
+		prompt += "		"+str(i)+". Name: Goal Accomplished\n"
+		prompt += "		Description: The goal has been accomplished\n"
 
-		prompt += "You should only respond in JSON format as described below \n"
+		prompt += "You should only respond in JSON format as described below. Only one command can be chosen at a time. Do not include arguments or any value other than 'command'. \n"
 		prompt += "Response Format: \n"
 		prompt += "[{\n"
-		prompt += '	"goal": "goal to be achieved"\n'
-		prompt += '	"command_sequence": [\n'
-		prompt += '		{"command": "name"}\n'
-		prompt += '	]\n'
+		prompt += '	"command": "name"\n'
 		prompt += '}]\n'
 		prompt += "\n"
 		prompt += "Ensure the response can be parsed by Python json.loads"
-		message = None
-		if messages:	
-			prompt += """8. "Conversation" starts with the earliest message and ends with the most recent message.
-9. If the latest message changes the subject of the conversation, even if an earlier message is still relevant, you may respond with ["None"].
 
-Conversation:
-"""
-			#Get the last three messages and add them to the prompt
-			last_three_messages = messages[-3:]
-			for message in last_three_messages:
-				prompt += str(message)+"\n"
-			logging.info(prompt)
-			message = [{'role': 'system', 'content': prompt}]
-		
-		return message
+		return prompt
 
 
 	def stream_queue_sentences(self, arguments_dict):

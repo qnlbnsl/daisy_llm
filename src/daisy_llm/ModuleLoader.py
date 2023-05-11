@@ -42,6 +42,7 @@ class ModuleLoader:
 
 			# Load modules
 			self.available_modules = []
+			self.enabled_modules = []
 
 
 			# Load enabled modules from config file
@@ -58,6 +59,9 @@ class ModuleLoader:
 		
 	def get_hook_instances(self):
 		return self.hook_instances
+	
+	def get_enabled_modules(self):
+		return self.enabled_modules
 		
 	def get_available_modules(self):
 		if not self.loaded:
@@ -123,12 +127,6 @@ class ModuleLoader:
 									module_dict["description"] = class_description
 									module_dict["module_hook"] = module_hook
 									module_dict["enabled"] = True
-									if tool_form_name:
-										module_dict["tool_form_name"] = tool_form_name
-									if tool_form_description:
-										module_dict["tool_form_description"] = tool_form_description
-									if tool_form_argument:
-										module_dict["tool_form_argument"] = tool_form_argument
 
 									self.available_modules.append(module_dict)
 

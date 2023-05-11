@@ -20,7 +20,6 @@ import requests
 from concurrent.futures import ThreadPoolExecutor
 
 from .SoundManager import SoundManager
-import modules.RgbLed as led
 from .Text import print_text, delete_last_lines
 
 
@@ -44,7 +43,6 @@ class ChatSpeechProcessor:
 		self.result_received = False
 		self.sounds = SoundManager()
 		self.engine = pyttsx3.init()
-		self.led = led.RgbLed()
 		self.tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
 		self.elapsed_time = 0
 		self.timeout_seconds = 0
@@ -332,7 +330,6 @@ class ChatSpeechProcessor:
 							print_text("You ("+str(round(self.timeout_seconds - self.elapsed_time))+"s): ", "green", "", "bold")
 							print_text(str(self.result_str_obj['text']))
 
-							self.led.turn_on_color_random_brightness(0, 0, 100)  # Random brightness Blue
 
 							# If the message type is FinalTranscript, then we are done
 							if self.result_str_obj['message_type'] == "FinalTranscript" and self.result_str_obj['text'] != "":

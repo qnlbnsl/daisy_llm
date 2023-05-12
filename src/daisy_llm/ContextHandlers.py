@@ -50,7 +50,7 @@ class ContextHandlers:
 	description = "A class for handling and managing messages in the chatGPT context object"
 
 	def __init__(self, db_path):
-		self.chat = Chat()
+		self.chat = None
 
 		# Get and set conversation_id from configs.yaml
 		self.conversation_id = None
@@ -267,6 +267,8 @@ class ContextHandlers:
 		return False
 
 	def update_conversation_name_summary(self, conversation_id=None, update_all=False):
+		self.chat = Chat()
+
 		conversation_ids = []
 
 		if conversation_id:

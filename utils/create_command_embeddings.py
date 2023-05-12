@@ -1,7 +1,9 @@
 import json
 import os.path
-import torch
 from transformers import AutoTokenizer, AutoModel
+from daisy_llm.CommandHandlers import CommandHandlers
+
+commh = CommandHandlers(True)
 
 # Load pre-trained BERT model and tokenizer
 model_name = 'bert-base-uncased'
@@ -33,14 +35,6 @@ def save_embeddings(embeddings, tool_name):
     print(f"Embeddings saved to embeddings-{tool_name}.json file.")
 
 
-def embed_string(string):
-    input_ids = torch.tensor([tokenizer.encode(string)])
-    with torch.no_grad():
-        last_hidden_states = model(input_ids)[0]  # Shape: [batch_size, sequence_length, hidden_size]
-        embedding = torch.mean(last_hidden_states, dim=1)  # Take the mean of the sequence to get a single vector
-    return embedding.tolist()[0]
-
-
 def add_tool(embeddings, tool_name, testing=False):
     examples = []
     while True:
@@ -53,7 +47,7 @@ def add_tool(embeddings, tool_name, testing=False):
             if example == 'done':
                 break
 
-        example_embedding = embed_string(example)
+        example_embedding = commh.embed_string(example, tokenizer, model)
         if example_embedding is not None:
             examples.append({'text': example, 'embedding': example_embedding})
         else:
@@ -84,14 +78,6 @@ def add_tool(embeddings, tool_name, testing=False):
 
     return embeddings
 
-
-def list_tools(embeddings):
-    for tool in embeddings.values():
-        print(tool['module']['name'])
-        for example in tool['embeddings']:
-            print(f"  {example['text']}")
-
-
 def save_embeddings(embeddings, tool_name, output_dir='output'):
     os.makedirs(output_dir, exist_ok=True)
     file_name = f"{output_dir}/module-{tool_name}.json"
@@ -111,7 +97,10 @@ def save_embeddings(embeddings, tool_name, output_dir='output'):
     embeddings_copy = combined_embeddings.copy()
     for example in embeddings_copy:
         example_embedding = example['embedding']
-        example['embedding'] = example_embedding if example_embedding is not None else None
+        if example_embedding is not None:
+            example['embedding'] = example_embedding.tolist()  # Convert Tensor to list
+        else:
+            example['embedding'] = None
     
     # Save combined embeddings to file
     with open(file_name, 'w') as f:
@@ -130,7 +119,7 @@ def run_prompt():
             tool_name = input("Enter a tool name: ")
             add_tool(embeddings, tool_name)
         elif command == 'list':
-            list_tools(embeddings)
+            commh.list_tools(embeddings)
         elif command == 'save':
             for tool_name in embeddings:
                 save_embeddings(embeddings, tool_name)

@@ -3,11 +3,11 @@ import numpy as np
 import os
 from daisy_llm.CommandHandlers import CommandHandlers
 
-commh = CommandHandlers()
+commh = CommandHandlers(self_load=True)
 
 def load_embeddings():
     data = {}
-    path = './output/'
+    path = 'utils/output/'
     for filename in os.listdir(path):
         if not filename.endswith('.json'):
             continue
@@ -27,9 +27,6 @@ def main():
 
     if data:
 
-        # Load pre-trained BERT model and tokenizer
-        tokenizer, model = commh.load_bert_model('bert-base-uncased')
-
         # Output available commands
         commh.print_available_commands(data)
 
@@ -38,7 +35,7 @@ def main():
             task = input("Enter your task: ")
 
             # Convert goal to a list of sentence embeddings
-            task_vec = commh.embed_string(task, tokenizer, model)
+            task_vec = commh.embed_string(task, commh.tokenizer, commh.model)
 
             if task_vec is None:
                 print("Task contains no valid words. Please enter a different goal.")
@@ -50,12 +47,12 @@ def main():
             # Output the best command for achieving the goal
             print("Task:", task)
 
-            if not np.isnan(best_command_confidence):
-                print(f"Best command ({best_command_confidence:.2f}%): {best_command}")
-
             # Output the next best command for achieving the goal
-            if not np.isnan(next_best_command_confidence):
-                print(f"Next best command ({next_best_command_confidence:.2f}%): {next_best_command}")
+            commh.print_results(
+                best_command, 
+                best_command_confidence, 
+                next_best_command, 
+                next_best_command_confidence)
 
 if __name__ == '__main__':
     main()

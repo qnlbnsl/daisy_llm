@@ -8,6 +8,7 @@ from pydub.effects import speedup
 import simpleaudio
 import numpy as np
 import pkg_resources
+import time
 
 class SoundManager:
     description = "A class for managing sound files in a directory, playing sounds, and stopping playback."
@@ -95,6 +96,7 @@ class SoundManager:
             # Check if the playback has finished
             if not self.playback.is_playing():
                 return True
+            time.sleep(0.1)
 
 
 

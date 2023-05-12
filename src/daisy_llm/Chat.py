@@ -25,7 +25,10 @@ class Chat:
 		self.ch = ch
 		self.csp = ChatSpeechProcessor()
 		self.sounds = SoundManager()
+
 		self.commh = CommandHandlers(self.ml)
+		self.commh.load_bert_model()
+		self.commh.data = self.commh.load_embeddings()
 
 		with open("configs.yaml", "r") as f:
 			self.configs = yaml.safe_load(f)
@@ -63,24 +66,6 @@ class Chat:
 		threads = []  # keep track of all threads created
 		text_stream = [""]
 		return_text = [""]
-
-		#If tool check enabled, find the appropriate tool, and append the output to the messages list.
-		"""if tool_check:
-
-			response = self.toolform_checker(
-				messages=messages, 
-				stop_event=stop_event,
-				response_label=response_label,
-				model='gpt-3.5-turbo'
-				)
-			if response:
-
-				print_text("SYSTEM:", "red", "", "bold")
-				print_text(response, None, "\n")
-
-				#Append to CH_context, and the local messages list.
-				self.ch.add_message_object("system", response)
-				messages.append(self.ch.single_message_context("system", response, False))"""
 
 		#pprint.pprint(messages)
 		try:
@@ -179,28 +164,41 @@ class Chat:
 
 			run_commands_messages = []
 			if "Chat_request_inner" in hook_instances:
-
-				goal = self.get_goal_from_conversation(messages, stop_event)
-				best_command, best_command_argument, best_command_confidence, next_best_command, next_best_command_argument, next_best_command_confidence = self.commh.determine_command(goal)
-
-				print_text(str(best_command), "green", "", "bold")
-				'''
+				last_message = messages[-1]['content']
+				#goal = self.get_goal_from_conversation(messages, stop_event)
+				(best_command, 
+     			best_command_argument, 
+			    best_command_description,
+				best_command_confidence, 
+				next_best_command, 
+				next_best_command_argument, 
+				next_best_command_confidence,
+				next_best_command_description
+				) = self.commh.determine_command(last_message)
+				
 				#Get the argument
-				prompt = "Respond with the necessary argument for the command based on messages in Conversation.\n"
+				prompt = "1. Respond with the necessary argument to accomplish the task.\n"
+				prompt += "2. If the command is incorrect to accomplish the task, respond with 'Incorrect command'.\n"
+				prompt += "3. Provide only the argument as specified in Argument'.\n"
+				prompt += "Task: "+last_message+"\n"
 				prompt += "Command: "+best_command+"\n"
-				prompt += "Argument: "+best_command_argument+"\n"
-				prompt += "\n"
-				prompt += "Conversation:\n"
-				#Get the last three messages and add them to the prompt
-				last_three_messages = messages[-3:]
-				for message in last_three_messages:
-					prompt += message['role'].upper()+": "
-					prompt += message['content']+"\n"
-				prompt = messages[-1]['content']
-
-					#Determine goal and first command
+				prompt += "Description: "+best_command_description+"\n"
+				prompt += "Argument format: "+best_command_argument+"\n"
 
 
+				print_text(prompt)
+
+				print_text("ARGUMENT ("+best_command+"): ", "green", "\n")
+
+				message = [self.ch.single_message_context('system', prompt, False)]
+
+				response = self.request(
+						messages=message, 
+						model="gpt-4", #Best at choosing tools
+						stop_event=stop_event, 
+						response_label=False
+					)
+				'''
 				while goal is not None:
 
 					prompt = self.build_commands_checker_prompt(goal=goal)

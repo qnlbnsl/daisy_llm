@@ -3,6 +3,16 @@ import os.path
 from transformers import AutoTokenizer, AutoModel
 from daisy_llm.CommandHandlers import CommandHandlers
 
+#INSTRUCTIONS
+#1. Run this script from the command line
+#2. Enter the name of the tool you want to add embeddings for
+#3. Enter example search terms (paste multiple lines, leave a blank line to finish)
+    #Effective prompt: Provide examples that cover a wide range of variations and potential queries related to the following task: Get the weather forecast
+#4. Enter the module description
+#5. Enter the module argument
+#6. Repeat steps 2-5 for each tool you want to add embeddings for
+
+
 commh = CommandHandlers(True)
 
 # Load pre-trained BERT model and tokenizer
@@ -10,10 +20,13 @@ model_name = 'bert-base-uncased'
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModel.from_pretrained(model_name)
 
-json_file = 'embeddings.json'
+#json_file = 'embeddings.json'
+
+filename_prefix = 'module-'
+path = 'utils/output/'
 
 
-def load_embeddings(embeddings_file=json_file):
+def load_embeddings(embeddings_file):
     # Check if embeddings file exists, create it if not
     if not os.path.isfile(embeddings_file):
         with open(embeddings_file, 'w') as f:
@@ -24,83 +37,78 @@ def load_embeddings(embeddings_file=json_file):
         return json.load(f)
 
 
-def save_embeddings(embeddings, tool_name):
-    with open(f'embeddings-{tool_name}.json', 'w') as f:
-        # Convert the embeddings to lists before outputting
-        embeddings_copy = embeddings.copy()
-        for example in embeddings_copy:
-            example_embedding = example['embedding']
-            example['embedding'] = example_embedding if example_embedding is not None else None
-        json.dump(embeddings_copy, f, indent=4)
-    print(f"Embeddings saved to embeddings-{tool_name}.json file.")
-
-
 def add_tool(embeddings, tool_name, testing=False):
-    examples = []
-    while True:
-        example = None
+    os.makedirs(path, exist_ok=True)
+    file_name = f"{path}{filename_prefix}{tool_name}.json"
 
-        if testing:
-            example = "Find cats"
-        else:
-            example = input("Enter an example search term (or 'done' to finish): ")
-            if example == 'done':
+    module_name = None
+    module_description = None
+    module_argument = None
+    examples = []
+
+    if os.path.isfile(file_name):
+        # Load existing embeddings from file
+        with open(file_name, 'r') as f:
+            data = json.load(f)
+            module_name = data['module']['name']
+            module_description = data['module']['description']
+            module_argument = data['module']['argument']
+            examples = data['embeddings']
+
+    print("Enter example search terms (paste multiple lines, leave a blank line to finish):")
+    while True:
+        line = input()
+        if not line:
+            break
+
+        lines = line.strip().split('\n')
+        for example_line in lines:
+            example = example_line.strip()
+            example_embedding = commh.embed_string(example, tokenizer, model)
+            if example_embedding is not None:
+                examples.append({'text': example, 'embedding': example_embedding.tolist()})
+            else:
+                print("Skipping invalid embedding for example:", example)
+
+            if testing:
                 break
 
-        example_embedding = commh.embed_string(example, tokenizer, model)
-        if example_embedding is not None:
-            examples.append({'text': example, 'embedding': example_embedding})
-        else:
-            print("Skipping invalid embedding for example:", example)
-
-        if testing:
-            break
-        
     if examples:
-        module_name = input("Enter the module name: ")
-        module_description = input("Enter the module description: ")
-        module_argument = input("Enter the module argument: ")
+        if not module_description:
+            module_description = input("Enter the module description: ")
 
-        if tool_name in embeddings:
-            embeddings[tool_name]['examples'].extend(examples)
-        else:
-            embeddings[tool_name] = {
-                'module': {
-                    'name': module_name,
-                    'description': module_description,
-                    'argument': module_argument
-                },
-                'embeddings': examples
-            }
+        if not module_argument:
+            module_argument = input("Enter the module argument: ")
+
+        embeddings[tool_name] = {
+            'module': {
+                'name': tool_name,
+                'description': module_description,
+                'argument': module_argument
+            },
+            'embeddings': examples
+        }
         print(f"{len(examples)} examples added to {tool_name}.")
     else:
         print(f"No valid example embeddings found for {tool_name}. Skipping tool.")
 
     return embeddings
 
-def save_embeddings(embeddings, tool_name, output_dir='output'):
+
+
+def save_embeddings(embeddings, tool_name, output_dir=path):
     os.makedirs(output_dir, exist_ok=True)
-    file_name = f"{output_dir}/module-{tool_name}.json"
-    
-    if os.path.isfile(file_name):
-        # Load existing embeddings from file
-        with open(file_name, 'r') as f:
-            existing_embeddings = json.load(f)
-    else:
-        existing_embeddings = []
+    file_name = f"{output_dir}{filename_prefix}{tool_name}.json"
 
     # Merge existing embeddings with new embeddings
     new_embeddings = embeddings[tool_name]['embeddings']
-    combined_embeddings = existing_embeddings + new_embeddings
     
     # Convert the embeddings to lists before outputting
-    embeddings_copy = combined_embeddings.copy()
+    embeddings_copy = new_embeddings.copy()
     for example in embeddings_copy:
         example_embedding = example['embedding']
-        if example_embedding is not None:
-            example['embedding'] = example_embedding.tolist()  # Convert Tensor to list
-        else:
-            example['embedding'] = None
+        example['embedding'] = example_embedding
+
     
     # Save combined embeddings to file
     with open(file_name, 'w') as f:
@@ -112,7 +120,7 @@ def save_embeddings(embeddings, tool_name, output_dir='output'):
 
 
 def run_prompt():
-    embeddings = load_embeddings()
+    embeddings = {}
     while True:
         command = input("Enter a command (add, list, save, quit): ")
         if command == 'add':

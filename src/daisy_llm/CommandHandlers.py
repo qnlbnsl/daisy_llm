@@ -78,15 +78,13 @@ class CommandHandlers:
         next_best_command_description = None
 
         for command_name in embeddings.keys():
-            command_distance = 0.0
             command_data = embeddings[command_name]['embeddings']
+            command_match = 0.0
             for emb in command_data:
-                command_distance += cosine(goal_vec, emb)
-            command_distance /= len(command_data)
-            command_confidence = (1 - command_distance) * 100
-            description = embeddings[command_name]['description']
-            argument = embeddings[command_name]['argument']
-
+                match = 1 - cosine(goal_vec, emb)
+                if match > command_match:
+                    command_match = match
+            command_confidence = command_match * 100
 
             if command_confidence > best_command_confidence:
                 next_best_command = best_command
@@ -95,15 +93,26 @@ class CommandHandlers:
                 next_best_command_description = best_command_description
                 best_command_confidence = command_confidence
                 best_command = command_name
-                best_command_argument = argument
-                best_command_description = description
-            elif command_confidence < next_best_command_confidence:
+                best_command_argument = embeddings[command_name]['argument']
+                best_command_description = embeddings[command_name]['description']
+            elif command_confidence > next_best_command_confidence:
                 next_best_command_confidence = command_confidence
                 next_best_command = command_name
-                next_best_command_argument = argument
-                next_best_command_description = description
+                next_best_command_argument = embeddings[command_name]['argument']
+                next_best_command_description = embeddings[command_name]['description']
 
-        return best_command, best_command_argument, best_command_description, best_command_confidence, next_best_command, next_best_command_argument, next_best_command_description, next_best_command_confidence
+        return (
+            best_command,
+            best_command_argument,
+            best_command_description,
+            best_command_confidence,
+            next_best_command,
+            next_best_command_argument,
+            next_best_command_description,
+            next_best_command_confidence,
+        )
+
+
 
 
     def print_available_commands(self, embeddings):

@@ -17,6 +17,7 @@ def load_embeddings():
             command_name = module_data['module']['name']
             data[command_name] = {
                 'argument': module_data['module']['argument'],
+                'description': module_data['module']['description'],
                 'embeddings': [embedding['embedding'] for embedding in embeddings_list],
             }
     return data
@@ -42,7 +43,14 @@ def main():
                 return False
 
             # Find the command with the smallest cosine distance to the goal
-            (best_command, best_command_argument, best_command_confidence, next_best_command, next_best_command_argument, next_best_command_confidence) = commh.find_best_command(task_vec, data)
+            (best_command,
+            best_command_argument,
+            best_command_description,
+            best_command_confidence,
+            next_best_command,
+            next_best_command_argument,
+            next_best_command_description,
+            next_best_command_confidence,) = commh.find_best_command(task_vec, data)
 
             # Output the best command for achieving the goal
             print("Task:", task)

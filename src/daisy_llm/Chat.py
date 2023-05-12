@@ -149,8 +149,8 @@ class Chat:
 			self, 
 			messages=None, 
 			stop_event=None, 
-			response_label=True,
-			model='gpt-3.5-turbo'
+			model='gpt-3.5-turbo',
+			sensitivity=0.5,
 			):
 		output = "There was an error."
 		logging.info("Checking for tool forms...")
@@ -165,39 +165,67 @@ class Chat:
 			run_commands_messages = []
 			if "Chat_request_inner" in hook_instances:
 				last_message = messages[-1]['content']
-				#goal = self.get_goal_from_conversation(messages, stop_event)
 				(best_command, 
      			best_command_argument, 
 			    best_command_description,
 				best_command_confidence, 
 				next_best_command, 
 				next_best_command_argument, 
+				next_best_command_description,
 				next_best_command_confidence,
-				next_best_command_description
 				) = self.commh.determine_command(last_message)
+
+				if best_command_confidence > sensitivity:
+					command = best_command
+					argument = best_command_argument
+					description = best_command_description
+
+					command_argument = None
+					while True:
+						#Get the argument
+						prompt = "1. Respond with the necessary argument to accomplish the task.\n"
+						prompt += "2. If the command is incorrect to accomplish the task, respond with 'Incorrect command'.\n"
+						prompt += "3. Provide only the argument as specified in Argument'.\n"
+						prompt += "Task: "+last_message+"\n"
+						prompt += "Command: "+command+"\n"
+						prompt += "Description: "+description+"\n"
+						prompt += "Argument format: "+argument+"\n"
+
+
+						print_text(prompt)
+
+						print_text("ARGUMENT ("+command+"): ", "green")
+
+						message = [self.ch.single_message_context('system', prompt, False)]
+
+						response = self.request(
+								messages=message, 
+								model="gpt-4", #Best at choosing tools
+								stop_event=stop_event, 
+								response_label=False
+							)
+						
+
+						if response.lower() == "incorrect command":
+							if command == next_best_command:
+								output = "I'm sorry, I couldn't find the right tool to accomplish that task."
+								return output
+							else:
+								command = next_best_command
+								argument = next_best_command_argument
+								description = next_best_command_description
+						else:
+							command_argument = response
+							break
+					for instance in hook_instances["Chat_request_inner"]:
+						class_name = type(instance).__name__
+						if command == class_name:
+							output = instance.main(command_argument, stop_event)
+							if output:
+								print("Hook output: "+output)
+								return output
+
 				
-				#Get the argument
-				prompt = "1. Respond with the necessary argument to accomplish the task.\n"
-				prompt += "2. If the command is incorrect to accomplish the task, respond with 'Incorrect command'.\n"
-				prompt += "3. Provide only the argument as specified in Argument'.\n"
-				prompt += "Task: "+last_message+"\n"
-				prompt += "Command: "+best_command+"\n"
-				prompt += "Description: "+best_command_description+"\n"
-				prompt += "Argument format: "+best_command_argument+"\n"
-
-
-				print_text(prompt)
-
-				print_text("ARGUMENT ("+best_command+"): ", "green", "\n")
-
-				message = [self.ch.single_message_context('system', prompt, False)]
-
-				response = self.request(
-						messages=message, 
-						model="gpt-4", #Best at choosing tools
-						stop_event=stop_event, 
-						response_label=False
-					)
 				'''
 				while goal is not None:
 

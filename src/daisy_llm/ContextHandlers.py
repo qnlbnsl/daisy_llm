@@ -155,7 +155,11 @@ class ContextHandlers:
 		context = []
 		#Append start prompts to messages
 		for start_prompt in self.start_prompts:
-			context.append(start_prompt)
+			if include_system or start_prompt['role'] != 'system':
+				new_message = {'role': start_prompt['role'], 'content': start_prompt['content']}
+				if include_timestamp:
+					new_message['timestamp'] = start_prompt['timestamp']
+				context.append(start_prompt)
 
 		for message in self.messages:
 			if include_system or message['role'] != 'system':

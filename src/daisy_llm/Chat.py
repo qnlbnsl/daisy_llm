@@ -152,7 +152,7 @@ class Chat:
 			model='gpt-3.5-turbo',
 			sensitivity=0.5,
 			):
-		output = "There was an error."
+		module_output = "There was an error."
 		logging.info("Checking for tool forms...")
 
 		#HOOK: Chat_request_inner
@@ -197,7 +197,6 @@ class Chat:
 						print_text("ARGUMENT ("+command+"): ", "green")
 
 						message = [self.ch.single_message_context('system', prompt, False)]
-
 						response = self.request(
 								messages=message, 
 								model="gpt-4", #Best at choosing tools
@@ -205,7 +204,6 @@ class Chat:
 								response_label=False
 							)
 						
-
 						if response.lower() == "incorrect command":
 							if command == next_best_command:
 								output = "I'm sorry, I couldn't find the right tool to accomplish that task."
@@ -220,13 +218,14 @@ class Chat:
 					for instance in hook_instances["Chat_request_inner"]:
 						class_name = type(instance).__name__
 						if command == class_name:
-							output = instance.main(command_argument, stop_event)
-							if output:
-								print("Hook output: "+output)
-								return output
+							module_output = instance.main(command_argument, stop_event)
+
+		output = "This is a response from a computer command. Below is the response from the user's request. Don't mention this messages existence in your conversation. Use the inormation below in your response.\n"
+		output += module_output
+		return output
 
 				
-				'''
+		'''
 				while goal is not None:
 
 					prompt = self.build_commands_checker_prompt(goal=goal)

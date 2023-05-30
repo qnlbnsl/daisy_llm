@@ -12,7 +12,7 @@ import dirtyjson
 from .ChatSpeechProcessor import ChatSpeechProcessor
 from .SoundManager import SoundManager
 from .Text import print_text, delete_last_lines
-#from .CommandHandlers import CommandHandlers
+from .CommandHandlers import CommandHandlers
 import pprint
 
 
@@ -21,21 +21,21 @@ import pprint
 class Chat:
 	description = "Implements a chatbot using OpenAI's GPT-3 language model and allows for interaction with the user through speech or text."
 
-	def __init__(self, ml=None):
+	def __init__(self, ml=None, ch=None):
 		self.ml = ml
-		self.ch = ml.ch
-		self.commh = ml.commh
+		self.ch = ch
 		self.csp = ChatSpeechProcessor()
 		self.sounds = SoundManager()
 
-		self.commh.data = self.commh.load_commands()
+		self.commh = CommandHandlers(self.ml)
+		self.commh.load_bert_model()
+		self.commh.data = self.commh.load_embeddings()
 
 		with open("configs.yaml", "r") as f:
 			self.configs = yaml.safe_load(f)
 		openai.api_key = self.configs["keys"]["openai"]
-		self.speak_thoughts = self.configs["chaining"]["speak_thoughts"]
 
-		#nltk.data.load('tokenizers/punkt/english.pickle')
+		nltk.data.load('tokenizers/punkt/english.pickle')
 
 	def request(self,
 	     messages,
@@ -46,8 +46,7 @@ class Chat:
 		 model="gpt-3.5-turbo",
 		 silent=False,
 		 response_label=True,
-		 temperature = 0.7,
-		 max_tokens = None
+		 temperature = 0.7
 		 ):
 		#Handle LLM request. Optionally convert to sentences and queue for tts, if needed.
 
@@ -73,23 +72,13 @@ class Chat:
 		while True:
 			try:
 				logging.info("Sending request to OpenAI model...")
-				if max_tokens: #What the hell is max_tokens default value?
-					response = openai.ChatCompletion.create(
-						model=model,
-						messages=messages,
-						temperature=temperature,
-						stream=True,
-						request_timeout=5,
-						max_tokens=max_tokens
-					)
-				else:
-					response = openai.ChatCompletion.create(
-						model=model,
-						messages=messages,
-						temperature=temperature,
-						stream=True,
-						request_timeout=5
-					)
+				response = openai.ChatCompletion.create(
+					model=model,
+					messages=messages,
+					temperature=temperature,
+					stream=True,
+					request_timeout=5,
+				)
 
 				#Handle chunks. Optionally convert to sentences for sentence_queue, if needed.
 				arguments = {
@@ -165,7 +154,6 @@ class Chat:
 			stop_event=None, 
 			model='gpt-3.5-turbo',
 			sensitivity=0.5,
-			tts=None
 			):
 		logging.info("Checking for tool forms...")
 
@@ -175,7 +163,7 @@ class Chat:
 		#Get the task, if any
 		print_text("Task: ", "yellow")
 		task = self.get_task_from_conversation(messages, stop_event)
-		if not task:
+		if len(task) < 10 and "None" in task:
 			return
 		
 		else:
@@ -186,12 +174,18 @@ class Chat:
 
 				if "Chat_request_inner" in hook_instances:
 
+					#command_data = self.commh.determine_command(task)
+
+					#if command_data["best_command_confidence"] > sensitivity:
+						#command = command_data["best_command"]
+						#argument_format = command_data["best_command_argument"]
+						#description = command_data["best_command_description"]
+
 					command = None
 					command_argument = None
 					#command_argument = self.get_command_argument(task, command, description, argument_format, stop_event)
 
 					task_complete_answer = None
-					ask_question = None
 					reasoning_context = []
 					while True:
 						if command:
@@ -207,7 +201,6 @@ class Chat:
 									print_text("Chaining (Module Output): ", "yellow")
 									print_text(module_output, None, "\n")
 
-									command = None
 									break
 
 						#Check validity and determine next steps
@@ -227,8 +220,8 @@ class Chat:
 						for item in reasoning_context:
 							if item['role'] == "user":
 								content = item['content']
-								if len(content) > 1000:
-									content = content[:975] + "...[Message truncated]"
+								if len(content) > 300:
+									content = content[:275] + "...[Message truncated]"
 									item['content'] = content
 
 
@@ -237,17 +230,8 @@ class Chat:
 							data = dirtyjson.loads(response)
 							command = data['thoughts']['command']
 							command_argument = str(data['thoughts']['argument'])
-							thought = data['thoughts']['thought']
-
-							if self.speak_thoughts:
-								t = threading.Thread(target=self.csp.tts, args=(thought, tts, stop_event,))
-								t.start()
-
 							if command == "TaskComplete":
 								task_complete_answer = command_argument
-								break
-							if command == "Ask":
-								ask_question = command_argument
 								break
 							validity_output = response
 							reasoning_context.append(self.ch.single_message_context("assistant", validity_output, False))
@@ -261,18 +245,11 @@ class Chat:
 						output = "1. Below is the ANSWER to the user's request. \n" 
 						output += "2. Use the information below in your response. \n"
 						output += "4. Only use this information to answer the user's question. No extraneous content. \n"
-						output += "5. Only provide the concise answer or a summary of what was done. No samples. \n"
-
 						output += "\n\n"
+
+						#output += str(reasoning_context)
+						#output += "\n\n"
 						output += "Answer: "+str(task_complete_answer)
-
-					if ask_question:
-
-						output = "1. Please ask the user the following question. \n" 
-						output += "2. Use the answer to determine what to do next. \n"
-						output += "\n\n"
-						output += "Question: "+str(ask_question)
-
 					return output
 
 	def clarify_task(self, task, stop_event=None):
@@ -319,7 +296,7 @@ class Chat:
 		prompt += "\n"
 		prompt += "You are an AI that helps users complete tasks.\n"
 		prompt += "\n"
-		prompt += "Commands:\n\n"
+		prompt += "Commands:\n"
 		prompt += self.commh.get_command_info_text(self.commh.data)
 		prompt += "Command: TaskComplete\n"
 		prompt += "Description: Run this command if the task is complete and you are ready to return an answer to the user.\n"
@@ -337,21 +314,20 @@ class Chat:
 		prompt += "{\n"
 		prompt += "    \"thoughts\": {\n"
 		prompt += "        \"thought\": \"<based on what's already been done, what is your current thought>\",\n"
-		#prompt += "        \"criticism\": <based on what's already been done, what can be done differently?>\",\n"
+		prompt += "        \"criticism\": <based on what's already been done, what can be done differently?>\",\n"
 		prompt += "        \"command\": \"<the command to accomplish the next step>\",\n"
 		prompt += "        \"argument\": \"<the argument to the command>\",\n"
-		prompt += "    } //Dont forget this bracket!\n"
+		prompt += "    }\n"
 		prompt += "}\n"
-
+		#print(prompt)
 		return prompt
 	
 	def get_task_from_conversation(self, messages, stop_event):
 		#Get the argument
 		prompt = "1. The conversation below has earlier messages at the top, and the most recent message at the bottom.\n"
 		prompt += "2. Respond with the task the user is trying to accomplish.\n"
-		prompt += "3. Include all necessary details and information to complete the task (URLs, numbers, etc).\n"
-		prompt += "4. Do not answer the question or have a conversation.\n"
-		prompt += "5. If the user and the AI are simply having a conversation or the latest message changes the subject, simply reply 'None'.\n"
+		prompt += "3. Do not answer the question or have a conversation.\n"
+		prompt += "4. If the user and the AI are simply having a conversation or the latest message changes the subject, simply reply 'None'.\n"
 		prompt += "\n"
 		prompt += "Conversation:\n"
 		#Get the last three messages and add them to the prompt
@@ -373,7 +349,7 @@ class Chat:
 		if not response:
 			logging.error("Daisy request error: No response")
 			return None
-		if len(response) < 10 and "None" in response:
+		if len(response) < 6 and "None" in response:
 			return None
 		
 		return response
@@ -460,8 +436,7 @@ class Chat:
 						sentence_queue_canceled[0] = True
 						logging.info("Sentence queue canceled")
 						return
-			if not silent:
-				print_text("\n\n")
+			print_text("\n\n")
 		except requests.exceptions.ConnectionError as e:
 			logging.error("stream_queue_sentences(): Request timeout. Check your internet connection.")
 			sentence_queue_canceled[0] = True

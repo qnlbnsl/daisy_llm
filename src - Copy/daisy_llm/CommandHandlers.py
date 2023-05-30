@@ -16,12 +16,12 @@ class CommandHandlers:
         self.tokenizer = None
         self.model = None
 
-        #if self_load:
-            #self.load_bert_model()
+        if self_load:
+            self.load_bert_model()
 
 
 
-    def load_commands(self):
+    def load_embeddings(self):
         self.enabled_modules = self.ml.get_enabled_modules()
         data = {}
         for enabled_module in self.enabled_modules:
@@ -41,15 +41,15 @@ class CommandHandlers:
         return data
 
 
-    #def load_bert_model(self, model_name='bert-base-uncased'):
-    #    self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-    #    self.model = AutoModel.from_pretrained(model_name)
+    def load_bert_model(self, model_name='bert-base-uncased'):
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModel.from_pretrained(model_name)
     
-    #def list_tools(self, embeddings):
-    #    for tool in embeddings.values():
-    #        print(tool['module']['name'])
-    #        for example in tool['embeddings']:
-    #            print(f"  {example['text']}")
+    def list_tools(self, embeddings):
+        for tool in embeddings.values():
+            print(tool['module']['name'])
+            for example in tool['embeddings']:
+                print(f"  {example['text']}")
 
     def get_command_info_text(self, data):
         tool_info = ""
@@ -60,8 +60,6 @@ class CommandHandlers:
             tool_info += "\n"
 
         return tool_info
-
-
 
     def embed_string(self, string, tokenizer, model):
         print("Embedding: ", string)
@@ -123,10 +121,13 @@ class CommandHandlers:
             next_best_command_confidence,
         )
 
-    #def print_available_commands(self, embeddings):
-    #    print("Available commands:")
-    #    for command in embeddings.keys():
-    #        print(f"- {command}")
+
+
+
+    def print_available_commands(self, embeddings):
+        print("Available commands:")
+        for command in embeddings.keys():
+            print(f"- {command}")
 
     def print_results(self, best_command, best_command_confidence, next_best_command, next_best_command_confidence):
         if not np.isnan(best_command_confidence):
@@ -140,7 +141,7 @@ class CommandHandlers:
 
         if self.data:
             # Output available commands
-            #self.print_available_commands(self.data)
+            self.print_available_commands(self.data)
 
             # Convert goal to a sentence embedding
             task_vec = self.embed_string(task, self.tokenizer, self.model)

@@ -152,6 +152,8 @@ class ContextHandlers:
 			logging.info(f"Inserted {row_count} rows for conversation {self.conversation_id}.")
 
 	def get_context(self, include_timestamp=True, include_system=True):
+		print("include_timestamp: " + str(include_timestamp))
+		print("include_system: " + str(include_system))
 		context = []
 		# Append start prompts to messages
 		for start_prompt in self.start_prompts:

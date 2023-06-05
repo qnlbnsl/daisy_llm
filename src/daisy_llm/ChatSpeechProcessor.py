@@ -1,9 +1,3 @@
-import pyaudio
-import websockets
-import asyncio
-import base64
-import json
-import threading
 import time
 import re
 import string
@@ -13,30 +7,29 @@ import logging
 import yaml
 import nltk.data
 import queue
-import threading
 import time
 import queue
 import requests
+import threading
+import speech_recognition as sr
 from concurrent.futures import ThreadPoolExecutor
 
 from .SoundManager import SoundManager
 from .Text import print_text, delete_last_lines
+from .LoadTts import LoadTts
 
 
 
 class ChatSpeechProcessor:
 	description = "A class that handles speech recognition and text-to-speech processing for a chatbot."
 
-	def __init__(self):
+	def __init__(self, tts=None):
 		# Set up AssemblyAI API key and websocket endpoint
 		self.uri = "wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000"
 
-
 		# Define global variables
-		with open("configs.yaml", "r") as f:
-			configs = yaml.safe_load(f)
-		self.assembly_ai_api_key = configs["keys"]["assembly_ai"]
 		self.tts_speed = 1.0
+		self.tts = None
 
 		self.result_str = ""
 		self.new_result_str = ""
@@ -52,8 +45,17 @@ class ChatSpeechProcessor:
 
 		self.threads = []  # keep track of all threads created
 
+	def initialize_tts(self, ml):
+		t = LoadTts(self, ml)
+		t.start()
+		t.join()
 
-	def tts(self, text, tts, stop_event=None, sound_stop_event=None):
+	def tts(self, arguments_dict):
+		text = arguments_dict.get('text')
+		stop_event = arguments_dict.get('stop_event', None)
+		sound_stop_event = arguments_dict.get('sound_stop_event', None)
+		tts = arguments_dict.get('tts')
+
 		with open("configs.yaml", "r") as f:
 			configs = yaml.safe_load(f)
 			self.tts_speed = configs["TTS"]["speed"]
@@ -225,191 +227,63 @@ class ChatSpeechProcessor:
 			elif tts_queue_complete[0]:
 				logging.info("TTS play queue complete")
 				return
+			
+	def stt(self, stop_event, timeout=30):
+		# Create a recognizer object
+		recognizer = sr.Recognizer()
+
+		# Use the default system microphone as the audio source
+		with sr.Microphone() as source:
+			# Adjust for ambient noise levels
+			recognizer.adjust_for_ambient_noise(source)
+
+			# Listen for the user's speech input until the stop event is set
+			while not stop_event.is_set():
+				self.sounds.play_sound_with_thread('alert')
+
+				# Create the stop event for the timer thread
+				timer_stop_event = threading.Event()
+
+				# Start the timer thread
+				timer_thread = threading.Thread(target=self.display_timer, args=(timeout, timer_stop_event))
+				timer_thread.start()
+
+				try:
+					# Listen for the user's speech
+					audio = recognizer.listen(source=source, timeout=timeout)
+
+					# Stop the timer thread
+					timer_stop_event.set()
+					timer_thread.join()
+
+					# Use the recognizer to transcribe the speech
+					text = recognizer.recognize_google(audio)
+					print_text(text, None, "\n")
+					return text
+				except sr.UnknownValueError:
+					print("Unable to transcribe the audio")
+				except sr.RequestError as e:
+					print("Error occurred during transcription: {}".format(e))
+
+			print("Returning none")
+			return None
 
 
-	async def stt_send_receive(self, stop_event, timeout_seconds=0, sound = None):
-		"""Sends audio data to AssemblyAI STT API and receives text transcription in real time using websockets."""
+	def display_timer(self, timeout):
+		start_time = time.time()
+		while time.time() - start_time < timeout:
+			if stop_event.is_set():
+				break
+			time.sleep(1)
 
-		self.result_str = ""
-		self.new_result_str = ""
-		self.result_received = False
-		self.timeout_seconds = timeout_seconds
-
-		# Set up PyAudio
-		FRAMES_PER_BUFFER = 3200
-		FORMAT = pyaudio.paInt16
-		CHANNELS = 1
-		RATE = 16000
-		p = pyaudio.PyAudio()
-		stream = p.open(
-			format=FORMAT,
-			channels=CHANNELS,
-			rate=RATE,
-			input=True,
-			frames_per_buffer=FRAMES_PER_BUFFER
-		)
-
-		try:
-			async with websockets.connect(
-				self.uri,
-				extra_headers=(("Authorization", self.assembly_ai_api_key),),
-				ping_interval=5,
-				ping_timeout=20
-			) as _ws:
-				await asyncio.sleep(0.1)
-				logging.info("Receiving SessionBegins ...")
-				session_begins = await _ws.recv()
-				logging.info(session_begins)
-				logging.info("AAI Listening ...")
-
-				async def timeout() -> None:
-					start_time: float = time.time()
-					self.elapsed_time: float = 0
-
-					while not self.result_received and not stop_event.is_set():
-						self.elapsed_time: float = time.time() - start_time
-						if stop_event.is_set():
-							logging.info("Timeout()")
-							break
-						if timeout_seconds > 0: # If timeout is 0s, then dont timeout
-							if self.elapsed_time > timeout_seconds:
-								logging.info("Timeout reached")
-								stop_event.set()
-								return
-						await asyncio.sleep(0.01)
-
-					logging.info("timeout(): Timeout cancelled or result received")
-
-					return
-
-
-				async def send():
-					logging.info("STT Send start")
-
-					while not self.result_received and not stop_event.is_set():
-						if stop_event.is_set():
-							logging.info("Send(): Cancelled")
-							break
-
-						try:
-							data = stream.read(FRAMES_PER_BUFFER)
-							data = base64.b64encode(data).decode("utf-8")
-							json_data = json.dumps({
-								"audio_data":str(data), 
-								"punctuate": False, 
-								"format_text": False
-								})
-							await _ws.send(json_data)
-						except websockets.exceptions.ConnectionClosedError as e:
-							logging.error(f"Connection closed with error code {e.code}: {e.reason}")
-							break
-						except Exception as e:
-							logging.exception(f"Unexpected error: {e}")
-							break
-						await asyncio.sleep(0.01)
-
-					logging.info("send(): STT Send done")
-					return
-							
-				
-				async def receive():
-					logging.info("STT Receive start")
-
-					while not self.result_received and not stop_event.is_set():
-						if stop_event.is_set():
-							logging.info("receive(): Cancelled")
-							self.result_str = False
-							self.result_received = True
-							break
-
-						try:
-							self.new_result = await asyncio.wait_for(_ws.recv(), timeout=3) #Timeout if connection is lost
-							self.result_str_obj = json.loads(self.new_result)
-
-							delete_last_lines()
-							print_text("You ("+str(round(self.timeout_seconds - self.elapsed_time))+"s): ", "green", "", "bold")
-							print_text(str(self.result_str_obj['text']))
-
-
-							# If the message type is FinalTranscript, then we are done
-							if self.result_str_obj['message_type'] == "FinalTranscript" and self.result_str_obj['text'] != "":
-								#DONE
-								logging.info("receive(): STT Receive done")
-								logging.info("receive(): You said: "+str(self.result_str_obj['text']))
-
-								self.result_str = self.result_str_obj['text']
-								self.result_received = True
-								print_text("", None, "\n")
-
-						except asyncio.TimeoutError:
-							logging.warning("receive(): Receive timed out")
-							self.result_str = False
-							self.result_received = True
-						except websockets.exceptions.ConnectionClosedError as e:
-							logging.error(f"Connection closed with error code {e.code}: {e.reason}")
-							self.result_str = False
-							self.result_received = True
-						except Exception as e:
-							logging.exception(f"Unexpected error: {e}")
-							self.result_str = False
-							self.result_received = True
-					logging.info("receive(): STT Receive done")
-					return
-
-
-
-				#Play start sound
-				if sound:
-					self.sounds.play_sound_with_thread(sound)
-
-				send_result, receive_result, timeout_result = await asyncio.gather(
-					asyncio.shield(timeout()), asyncio.shield(send()), asyncio.shield(receive())
-				)
-		except websockets.exceptions.ConnectionClosedError as e:
-			logging.error(f"Connection closed with error code {e.code}: {e.reason}")
-			self.result_str = False
-			self.result_received = True
-
-
-	def stt(self, stop_event, timeout_seconds=0, sound = None):
-		"""Calls stt_send_receive in a new thread and returns the final transcription."""
-		# Create an event object to signal the thread to stop
-		stt_stop_event = threading.Event()
-
-		def watch_results():
-			#global result_received
-			#global result_str
-			while not stt_stop_event.is_set() and not stop_event.is_set():
-				if self.result_received:
-					logging.info("Result received: %s", self.result_str)
-					self.result_received = False
-
-					# Set the event to signal the thread to stop
-					stt_stop_event.set()
-
-				time.sleep(0.1)
-
-			# Join the thread to wait for it to finish
-			logging.debug("Joining STT thread...")
-			thread.join()
-			logging.debug("STT Thread stopped")
-
-			return self.result_str
-
-
-		# Set up AssemblyAI stt_send_receive loop
-		#This is a thread in a thread. I think it can be reduced.
-		def start_stt_send_receive():
-			asyncio.run(self.stt_send_receive(stop_event, timeout_seconds, sound))
-
-		# Create and start the stt_send_receive thread
-		thread = threading.Thread(target=start_stt_send_receive)
-		thread.start()
-
-		# Start watching results in the main thread
-		result_str = watch_results()
-
-		return result_str
+	def display_timer(self, timeout, stop_event):
+		for seconds_remaining in range(timeout, -1, -1):
+			
+			if stop_event.is_set():
+				return
+			
+			print_text(f"\r("+str(seconds_remaining)+"/"+str(timeout)+" seconds) You: ", "blue", end="")
+			time.sleep(1)
 
 	def remove_non_alphanumeric(self, text):
 		"""Removes all characters that are not alphanumeric or punctuation."""

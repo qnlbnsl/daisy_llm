@@ -1,6 +1,6 @@
 import threading
 
-import src.daisy_llm.ModuleLoader as module_loader
+import src.daisy_llm.DaisyCore as module_loader
 import src.daisy_llm.ContextHandlers as context_handlers
 
 ch = context_handlers('daisy.db')

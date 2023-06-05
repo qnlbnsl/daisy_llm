@@ -54,6 +54,8 @@ class ModuleLoader:
 			# Load enabled modules from config file
 			with open(self.configs_yaml, 'r') as f:
 				self.configs = yaml.load(f)
+
+
 			
 
 	def close(self):
@@ -307,4 +309,3 @@ class ModuleLoader:
 				# Wait for some time before checking for updates again
 				time.sleep(1)
 		
-

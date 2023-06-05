@@ -8,6 +8,7 @@ import json
 import requests
 import re
 import dirtyjson
+import traceback
 
 from .ChatSpeechProcessor import ChatSpeechProcessor
 from .SoundManager import SoundManager
@@ -163,6 +164,7 @@ class Chat:
 			self, 
 			messages=None, 
 			stop_event=None, 
+			sound_stop_event=None,
 			model='gpt-3.5-turbo',
 			sensitivity=0.5,
 			tts=None
@@ -202,14 +204,19 @@ class Chat:
 								if command == class_name:
 									module_output = "[Output from "+class_name+": "+command_argument+"]\n"
 									module_output += instance.main(command_argument, stop_event)+"\n\n"
-									module_output = module_output[:7000] #Limit output size so we don't immediately run out of context space
+									module_output = module_output #Limit output size so we don't immediately run out of context space
 									reasoning_context.append(self.ch.single_message_context("user", module_output, False))
 									print_text("Chaining (Module Output): ", "yellow")
 									print_text(module_output, None, "\n")
 
 									command = None
 									break
-
+						
+						#Check for task completion
+						task_complete_answer = self.check_for_task_completion(task, reasoning_context, stop_event)
+						if task_complete_answer:
+							break
+						
 						#Check validity and determine next steps
 						validity_prompt = self.validity_prompt(task, stop_event)
 						reasoning_context_copy = reasoning_context.copy()
@@ -231,7 +238,6 @@ class Chat:
 									content = content[:975] + "...[Message truncated]"
 									item['content'] = content
 
-
 						#Get the subtask for an incomplete task
 						try:
 							data = dirtyjson.loads(response)
@@ -239,8 +245,14 @@ class Chat:
 							command_argument = str(data['thoughts']['argument'])
 							thought = data['thoughts']['thought']
 
-							if self.speak_thoughts:
-								t = threading.Thread(target=self.csp.tts, args=(thought, tts, stop_event,))
+							if self.speak_thoughts and tts is not None:
+								arguments = {
+									'text': thought,
+									'stop_event': stop_event,
+									'sound_stop_event': sound_stop_event,
+									'tts': tts
+								}
+								t = threading.Thread(target=self.csp.tts, args=(arguments,))
 								t.start()
 
 							if command == "TaskComplete":
@@ -254,13 +266,11 @@ class Chat:
 						except Exception as e:
 							print("Error parsing JSON: "+str(e))
 
-
-
 					if task_complete_answer:
 
 						output = "1. Below is the ANSWER to the user's request. \n" 
 						output += "2. Use the information below in your response. \n"
-						output += "4. Only use this information to answer the user's question. No extraneous content. \n"
+						output += "4. Only use this information to answer the user's question. No extraneous content like URLs, or repeating the content of other output, unless explicitly requested. \n"
 						output += "5. Only provide the concise answer or a summary of what was done. No samples. \n"
 
 						output += "\n\n"
@@ -274,6 +284,66 @@ class Chat:
 						output += "Question: "+str(ask_question)
 
 					return output
+
+	def check_for_task_completion(self, task, reasoning_context, stop_event):
+		#Check for task completion
+		print_text("Chaining (Completion Check): ", "yellow")
+		completion_prompt = "Task: "+task
+		completion_prompt += "Does the content of this conversation indicate the task is complete? (Yes/No)"
+		reasoning_context_copy = reasoning_context.copy()
+		reasoning_context_copy.append(self.ch.single_message_context("user", completion_prompt, False))
+		#print(reasoning_context_copy)
+		response = self.request(
+			messages=reasoning_context_copy, 
+			model="gpt-4", #Best at choosing tools
+			stop_event=stop_event, 
+			response_label=False,
+			max_tokens=10
+		)
+		if "yes" in response.lower():
+			reasoning_context_copy.append(self.ch.single_message_context("user", response, False))
+
+			#Get completion reason
+			print_text("Chaining (Completion Reasoning): ", "yellow")
+			completion_reason_prompt = "In ONE sentence, respond to the task and describe what's been done."
+			reasoning_context_copy.append(self.ch.single_message_context("user", completion_reason_prompt, False))
+			#print(reasoning_context_copy)
+			response = self.request(
+				messages=reasoning_context_copy, 
+				model="gpt-4", #Best at choosing tools
+				stop_event=stop_event, 
+				response_label=False,
+				max_tokens=200
+			)
+			return response
+		else:
+			return None
+
+	def request_boolean(self, question, stop_event=None, silent=True):
+		prompt = "Answer the following with 'True' or 'False'\n\n"
+		prompt += question
+		message = [self.ch.single_message_context("user", prompt, False)]
+
+		counter = 0
+
+		while counter < 3:
+			response = self.request(
+				messages=message,
+				model="gpt-4",
+				stop_event=stop_event,
+				response_label=False,
+				temperature=0,
+				silent=silent,
+				max_tokens=10
+			)
+			if "true" in str(response.lower()):
+				return True
+			elif "false" in str(response.lower()):
+				return False
+			else:
+				counter += 1
+
+		return None
 
 	def clarify_task(self, task, stop_event=None):
 		prompt = "1. Respond with a more concise and clear task. Limit prose.\n"
@@ -331,12 +401,13 @@ class Chat:
 		prompt += "2. Refer to messages previous in this conversation for necessary information and task status.\n"
 		prompt += "4. Do not add any extra data to the JSON response than what is detailed in the example. No extraneous data.\n"
 		prompt += "6. If the conversation is looping, Ask the user for more information.\n"
-		prompt += "7. Be diligent about when the task is complete. If enough iformation has been gathered or the steps have been completed, run TaskComplete.\n"
+		prompt += "7. Be diligent about when the task is complete. If enough information has been gathered or the steps have been completed, run TaskComplete.\n"
+		prompt += "8. Don't loop. If you are repeating yourself, or cannot find a solution, run TaskComplete\n"
 		prompt += "\n"
 		prompt += "Response Format: \n"
 		prompt += "{\n"
 		prompt += "    \"thoughts\": {\n"
-		prompt += "        \"thought\": \"<based on what's already been done, what is your current thought>\",\n"
+		prompt += "        \"thought\": \"<what is your current thought to complete the task>\",\n"
 		#prompt += "        \"criticism\": <based on what's already been done, what can be done differently?>\",\n"
 		prompt += "        \"command\": \"<the command to accomplish the next step>\",\n"
 		prompt += "        \"argument\": \"<the argument to the command>\",\n"
@@ -348,10 +419,11 @@ class Chat:
 	def get_task_from_conversation(self, messages, stop_event):
 		#Get the argument
 		prompt = "1. The conversation below has earlier messages at the top, and the most recent message at the bottom.\n"
-		prompt += "2. Respond with the task the user is trying to accomplish.\n"
-		prompt += "3. Include all necessary details and information to complete the task (URLs, numbers, etc).\n"
-		prompt += "4. Do not answer the question or have a conversation.\n"
-		prompt += "5. If the user and the AI are simply having a conversation or the latest message changes the subject, simply reply 'None'.\n"
+		prompt += "2. Respond with the task the user is trying to accomplish. Only prose.\n"
+		prompt += "3. Do not try to accomplish the task here. Only recite what the task is.\n"
+		prompt += "4. Include all necessary details and information to complete the task (URLs, numbers, etc).\n"
+		prompt += "5. Do not answer the question or have a conversation.\n"
+		prompt += "6. If the user and the AI are simply having a conversation or the latest message changes the subject, simply reply 'None'.\n"
 		prompt += "\n"
 		prompt += "Conversation:\n"
 		#Get the last three messages and add them to the prompt
@@ -373,7 +445,7 @@ class Chat:
 		if not response:
 			logging.error("Daisy request error: No response")
 			return None
-		if len(response) < 10 and "None" in response:
+		if response.startswith("None"):
 			return None
 		
 		return response
@@ -440,26 +512,34 @@ class Chat:
 				print_text("Daisy ("+model+"): ", "blue", "", "bold")
 
 			for chunk in response:
-				if not sentence_queue_canceled[0]:
-					if not stop_event.is_set():
-						temp_sentences = []
-						collected_chunks.append(chunk)
-						chunk_message = chunk['choices'][0]['delta']
-						collected_messages.append(chunk_message)
-						text_stream[0] = ''.join([m.get('content', '') for m in collected_messages])
-						logging.debug(text_stream[0])
+				try:
+					if not sentence_queue_canceled[0]:
+						if not stop_event.is_set():
+							temp_sentences = []
+							collected_chunks.append(chunk)
+							chunk_message = chunk['choices'][0]['delta']
+							collected_messages.append(chunk_message)
+							text_stream[0] = ''.join([m.get('content', '') for m in collected_messages])
+							logging.debug(text_stream[0])
 
-						if not silent:
-							if 'content' in chunk_message:
-								print_text(chunk_message['content'])
-						
-						#Tokenize the text into sentences
-						temp_sentences = self.csp.nltk_sentence_tokenize(text_stream[0])
-						sentences[0] = temp_sentences  # put the sentences into the queue
+							if not silent:
+								if 'content' in chunk_message:
+									print_text(chunk_message['content'])
+							
+							#Tokenize the text into sentences
+							temp_sentences = self.csp.nltk_sentence_tokenize(text_stream[0])
+							sentences[0] = temp_sentences  # put the sentences into the queue
+						else:
+							sentence_queue_canceled[0] = True
+							logging.info("Sentence queue canceled")
+							return
+				except ValueError as e:  # Handle the ValueError for each chunk
+					if 'invalid literal for int() with base 16' in str(e):
+						logging.error("stream_queue_sentences(): Error parsing a chunk of server response. Skipping this chunk and moving to the next one...")
+						traceback.print_exc()
+						continue  # Skip to the next chunk
 					else:
-						sentence_queue_canceled[0] = True
-						logging.info("Sentence queue canceled")
-						return
+						raise e
 			if not silent:
 				print_text("\n\n")
 		except requests.exceptions.ConnectionError as e:
@@ -479,3 +559,4 @@ class Chat:
 		for message in chat_handlers.get_context():
 			# Check if the message role is in the list of roles to display
 			print(f"{message['role'].upper()}: {message['content']}\n\n")
+

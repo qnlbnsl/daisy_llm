@@ -23,7 +23,7 @@ from .LoadTts import LoadTts
 class ChatSpeechProcessor:
 	description = "A class that handles speech recognition and text-to-speech processing for a chatbot."
 
-	def __init__(self, tts=None):
+	def __init__(self, ml):
 		# Set up AssemblyAI API key and websocket endpoint
 		self.uri = "wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000"
 
@@ -31,6 +31,7 @@ class ChatSpeechProcessor:
 		self.tts_speed = 1.0
 		self.tts = None
 
+		self.ml = ml
 		self.result_str = ""
 		self.new_result_str = ""
 		self.result_received = False
@@ -45,23 +46,29 @@ class ChatSpeechProcessor:
 
 		self.threads = []  # keep track of all threads created
 
+		self.initialize_tts(self.ml)
+
+
 	def initialize_tts(self, ml):
 		t = LoadTts(self, ml)
 		t.start()
-		t.join()
+		#t.join()
 
-	def tts(self, arguments_dict):
+	def speak_tts(self, arguments_dict):
 		text = arguments_dict.get('text')
 		stop_event = arguments_dict.get('stop_event', None)
 		sound_stop_event = arguments_dict.get('sound_stop_event', None)
-		tts = arguments_dict.get('tts')
 
 		with open("configs.yaml", "r") as f:
 			configs = yaml.safe_load(f)
 			self.tts_speed = configs["TTS"]["speed"]
 
-		audio = tts.create_tts_audio(text)
+		audio = self.create_tts_audio(text)
 		self.sounds.play_sound(audio, 1.0, stop_event, sound_stop_event, self.tts_speed)
+
+	def create_tts_audio(self, text):
+		audio = self.tts.create_tts_audio(text)
+		return audio
 
 	def queue_and_tts_sentences(
 			self, 
@@ -114,7 +121,7 @@ class ChatSpeechProcessor:
 			logging.info("Queued sentence: " + queued_sentence)
 
 			try:
-				tts_queue.put(tts.create_tts_audio(queued_sentence))
+				tts_queue.put(self.create_tts_audio(queued_sentence))
 			except requests.exceptions.HTTPError as e:
 				self.tts("HTTP Error. Error creating TTS audio. Please check your TTS account.")
 				logging.error(f"HTTP Error: {e}")
@@ -153,7 +160,7 @@ class ChatSpeechProcessor:
 
 					try:
 						if not sentence_queue_canceled[0]:
-							tts_queue.put(tts.create_tts_audio(queued_sentence))
+							tts_queue.put(self.create_tts_audio(queued_sentence))
 					except requests.exceptions.HTTPError as e:
 						self.tts("HTTP Error. Error creating TTS audio. Please check your TTS account.")
 						logging.error(f"HTTP Error: {e}")
@@ -265,7 +272,6 @@ class ChatSpeechProcessor:
 				except sr.RequestError as e:
 					print("Error occurred during transcription: {}".format(e))
 
-			print("Returning none")
 			return None
 
 
@@ -285,20 +291,7 @@ class ChatSpeechProcessor:
 			print_text(f"\r("+str(seconds_remaining)+"/"+str(timeout)+" seconds) You: ", "blue", end="")
 			time.sleep(1)
 
-	def remove_non_alphanumeric(self, text):
-		"""Removes all characters that are not alphanumeric or punctuation."""
 
-		# Create a set of all valid characters
-		valid_chars = set(string.ascii_letters + string.digits + "!()',./?+=-_#$%&*@" + ' ')
-
-		# Use a generator expression to filter out any invalid characters
-		filtered_text = ''.join(filter(lambda x: x in valid_chars, text))
-
-		# Log the input and output text at the DEBUG level
-		logging.debug(f'Removing non-alphanumeric characters from text: {text}')
-		logging.debug(f'Filtered text: {filtered_text}')
-
-		return filtered_text
 
 	def remove_non_alpha(self, text):
 		"""Removes all non-alphabetic characters (including punctuation and numbers) from a string and returns the modified string in lowercase."""

@@ -13,7 +13,6 @@ import traceback
 from .ChatSpeechProcessor import ChatSpeechProcessor
 from .SoundManager import SoundManager
 from .Text import print_text, delete_last_lines
-#from .CommandHandlers import CommandHandlers
 import pprint
 
 
@@ -22,11 +21,11 @@ import pprint
 class Chat:
 	description = "Implements a chatbot using OpenAI's GPT-3 language model and allows for interaction with the user through speech or text."
 
-	def __init__(self, ml=None):
+	def __init__(self, ml=None, csp=None):
 		self.ml = ml
 		self.ch = ml.ch
 		self.commh = ml.commh
-		self.csp = ChatSpeechProcessor()
+		self.csp = csp
 		self.sounds = SoundManager()
 
 		self.commh.data = self.commh.load_commands()
@@ -165,8 +164,6 @@ class Chat:
 			messages=None, 
 			stop_event=None, 
 			sound_stop_event=None,
-			model='gpt-3.5-turbo',
-			sensitivity=0.5,
 			tts=None
 			):
 		logging.info("Checking for tool forms...")
@@ -178,7 +175,7 @@ class Chat:
 		print_text("Task: ", "yellow")
 		task = self.get_task_from_conversation(messages, stop_event)
 		if not task:
-			return
+			return None
 		
 		else:
 
@@ -204,23 +201,23 @@ class Chat:
 								if command == class_name:
 									module_output = "[Output from "+class_name+": "+command_argument+"]\n"
 									module_output += instance.main(command_argument, stop_event)+"\n\n"
-									module_output = module_output #Limit output size so we don't immediately run out of context space
 									reasoning_context.append(self.ch.single_message_context("user", module_output, False))
 									print_text("Chaining (Module Output): ", "yellow")
 									print_text(module_output, None, "\n")
+									time.sleep(1)
 
 									command = None
 									break
 						
 						#Check for task completion
-						task_complete_answer = self.check_for_task_completion(task, reasoning_context, stop_event)
-						if task_complete_answer:
-							break
+						#task_complete_answer = self.check_for_task_completion(task, reasoning_context, stop_event)
+						#if task_complete_answer:
+						#	break
 						
 						#Check validity and determine next steps
-						validity_prompt = self.validity_prompt(task, stop_event)
+						reasoning_prompt = self.generate_reasoning_prompt(task, stop_event)
 						reasoning_context_copy = reasoning_context.copy()
-						reasoning_context_copy.append(self.ch.single_message_context("user", validity_prompt, False))
+						reasoning_context_copy.append(self.ch.single_message_context("user", reasoning_prompt, False))
 						#print(reasoning_context_copy)
 						print_text("Chaining (Assistant Reasoning): ", "yellow")
 						response = self.request(
@@ -234,8 +231,8 @@ class Chat:
 						for item in reasoning_context:
 							if item['role'] == "user":
 								content = item['content']
-								if len(content) > 1000:
-									content = content[:975] + "...[Message truncated]"
+								if len(content) > 3000:
+									content = content[:2960] + "...[Message truncated]"
 									item['content'] = content
 
 						#Get the subtask for an incomplete task
@@ -245,15 +242,7 @@ class Chat:
 							command_argument = str(data['thoughts']['argument'])
 							thought = data['thoughts']['thought']
 
-							if self.speak_thoughts and tts is not None:
-								arguments = {
-									'text': thought,
-									'stop_event': stop_event,
-									'sound_stop_event': sound_stop_event,
-									'tts': tts
-								}
-								t = threading.Thread(target=self.csp.tts, args=(arguments,))
-								t.start()
+
 
 							if command == "TaskComplete":
 								task_complete_answer = command_argument
@@ -261,11 +250,21 @@ class Chat:
 							if command == "Ask":
 								ask_question = command_argument
 								break
+							else:
+								if self.speak_thoughts and tts:
+									arguments = {
+										'text': thought,
+										'stop_event': stop_event,
+										'sound_stop_event': sound_stop_event
+									}
+									t = threading.Thread(target=self.csp.speak_tts, args=(arguments,))
+									t.start()
 							validity_output = response
 							reasoning_context.append(self.ch.single_message_context("assistant", validity_output, False))
 						except Exception as e:
 							print("Error parsing JSON: "+str(e))
 
+					'''
 					if task_complete_answer:
 
 						output = "1. Below is the ANSWER to the user's request. \n" 
@@ -274,7 +273,12 @@ class Chat:
 						output += "5. Only provide the concise answer or a summary of what was done. No samples. \n"
 
 						output += "\n\n"
+						#output += "Command History:\n"
+						#for message in reasoning_context:
+						#	output += message['content']+"\n\n"
+
 						output += "Answer: "+str(task_complete_answer)
+					'''
 
 					if ask_question:
 
@@ -282,6 +286,9 @@ class Chat:
 						output += "2. Use the answer to determine what to do next. \n"
 						output += "\n\n"
 						output += "Question: "+str(ask_question)
+					else:
+						output = task_complete_answer
+
 
 					return output
 
@@ -384,7 +391,7 @@ class Chat:
 			)
 		return response
 
-	def validity_prompt(self, task, stop_event=None):
+	def generate_reasoning_prompt(self, task, stop_event=None):
 		prompt = "Task: "+task+"\n"
 		prompt += "\n"
 		prompt += "You are an AI that helps users complete tasks.\n"
@@ -395,15 +402,6 @@ class Chat:
 		prompt += "Description: Run this command if the task is complete and you are ready to return an answer to the user.\n"
 		prompt += "Argument format: Answer/Reasoning (String). Limit prose.\n"
 		prompt += "\n"
-		prompt += "\n"
-		prompt += "Rules:\n"
-		prompt += "1. The context of this conversation is about accomplishing a task.\n"
-		prompt += "2. Refer to messages previous in this conversation for necessary information and task status.\n"
-		prompt += "4. Do not add any extra data to the JSON response than what is detailed in the example. No extraneous data.\n"
-		prompt += "6. If the conversation is looping, Ask the user for more information.\n"
-		prompt += "7. Be diligent about when the task is complete. If enough information has been gathered or the steps have been completed, run TaskComplete.\n"
-		prompt += "8. Don't loop. If you are repeating yourself, or cannot find a solution, run TaskComplete\n"
-		prompt += "\n"
 		prompt += "Response Format: \n"
 		prompt += "{\n"
 		prompt += "    \"thoughts\": {\n"
@@ -413,6 +411,14 @@ class Chat:
 		prompt += "        \"argument\": \"<the argument to the command>\",\n"
 		prompt += "    } //Dont forget this bracket!\n"
 		prompt += "}\n"
+		prompt += "\n"
+		prompt += "Rules:\n"
+		prompt += "1. The context of this conversation is about accomplishing a task.\n"
+		prompt += "2. Refer to messages previous in this conversation for necessary information and task status.\n"
+		prompt += "4. Do not add any extra data to the JSON response than what is detailed in the example. No extraneous data.\n"
+		prompt += "6. If the conversation is looping, Ask the user for more information.\n"
+		prompt += "7. Be diligent about when the task is complete. If enough information has been gathered or the steps have been completed, run TaskComplete command.\n"
+		prompt += "8. Don't loop. If you are repeating yourself, or cannot find a solution, run TaskComplete command.\n"
 
 		return prompt
 	

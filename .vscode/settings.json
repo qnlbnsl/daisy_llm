@@ -1,0 +1,18 @@
+{
+    "python.analysis.typeCheckingMode": "strict",
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.diagnosticSeverityOverrides": {
+      "reportUnusedImport": "warning",
+      "reportMissingTypeStubs": "none",
+      "reportUnknownVariableType":"information"
+    },
+    "mypy-type-checker.args": ["--no-implicit-optional", "--ignore-missing-imports", "--follow-imports=silent", "--show-column-numbers","--allow-untyped-calls", "--strict"],
+    "mypy-type-checker.ignorePatterns": [
+      "^tests/"
+    ],
+    "cSpell.words": [
+      "frombuffer",
+      "hassio",
+      "inferenced"
+    ]
+  }

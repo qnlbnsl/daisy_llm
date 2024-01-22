@@ -15,7 +15,7 @@ import speech_recognition as sr
 from concurrent.futures import ThreadPoolExecutor
 
 from .SoundManager import SoundManager
-from .Text import print_text, delete_last_lines
+from .text import print_text, delete_last_lines
 from .LoadTts import LoadTts
 
 

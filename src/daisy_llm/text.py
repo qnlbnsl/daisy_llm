@@ -2,6 +2,7 @@ from typing import Dict, List, Optional
 import sys
 
 from ruamel.yaml import YAML
+
 yaml = YAML()
 
 # Define global variables
@@ -11,7 +12,18 @@ with open("configs.yaml", "r") as f:
 if "print_text" in configs:
     yaml_print_text = configs["print_text"]
 
-TEXT_COLOR_MAPPING = {
+
+class Colors:
+    red = "\u001b[31m"
+    green = "\u001b[32m"
+    yellow = "\u001b[33m"
+    blue = "\u001b[34m"
+    pink = "\u001b[35m"
+    cyan = "\u001b[36m"
+    white = "\u001b[37m"
+
+
+TEXT_COLOR_MAPPING: {
     "blue": "36;1",
     "yellow": "33;1",
     "pink": "38;5;200",
@@ -26,7 +38,7 @@ TEXT_STYLE_MAPPING = {
 
 
 def get_color_mapping(
-    items: List[str], excluded_colors: Optional[List] = None
+    items: List[str], excluded_colors: Optional[List[Colors]] = None
 ) -> Dict[str, str]:
     """Get mapping for items to a support color."""
     colors = list(TEXT_COLOR_MAPPING.keys())
@@ -35,7 +47,10 @@ def get_color_mapping(
     color_mapping = {item: colors[i % len(colors)] for i, item in enumerate(items)}
     return color_mapping
 
-def get_colored_text(text: str, color:[str] = None, style: Optional[str] = None) -> str:
+
+def get_colored_text(
+    text: str, color: Optional[str] = None, style: Optional[str] = None
+) -> str:
     """Get colored text."""
     color_str = TEXT_COLOR_MAPPING[color]
     if style is not None:
@@ -44,7 +59,10 @@ def get_colored_text(text: str, color:[str] = None, style: Optional[str] = None)
     else:
         return f"\u001b[{color_str}m{text}\u001b[0m"
 
-def print_text(text: str, color: Optional[str] = None, end: str = "", style: Optional[str] = None) -> None:
+
+def print_text(
+    text: str, color: Optional[str] = None, end: str = "", style: Optional[str] = None
+) -> None:
     """Print text with highlighting and optional styling."""
     if yaml_print_text:
         if color is None:
@@ -54,6 +72,6 @@ def print_text(text: str, color: Optional[str] = None, end: str = "", style: Opt
         print(text_to_print, end=end)
 
 
-def delete_last_lines(n=1): 
-    for _ in range(n): 
-        sys.stdout.write('\r\x1b[2K') #Erase the line and move the cursor to the start
+def delete_last_lines(n: int = 1) -> None:
+    for _ in range(n):
+        sys.stdout.write("\r\x1b[2K")  # Erase the line and move the cursor to the start

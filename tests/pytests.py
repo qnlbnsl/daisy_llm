@@ -1,9 +1,9 @@
 from src.daisy_llm.ChatSpeechProcessor import ChatSpeechProcessor
 from unittest.mock import MagicMock
-from src.daisy_llm.ContextHandlers import ContextHandlers
+from daisy_llm.context_handlers import ContextHandlers
 from src.daisy_llm.SoundManager import SoundManager
 from src.daisy_llm.ModuleLoader import ModuleLoader
-from src.daisy_llm.Chat import Chat
+from daisy_llm.chat import Chat
 import os
 
 test_messages=[{"role": "system", "content": "Daisy"}]
